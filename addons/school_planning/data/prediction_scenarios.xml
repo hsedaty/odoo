@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="prediction_scenario_conservative" model="school.prediction.scenario.preset">
+        <field name="name">Conservative</field>
+        <field name="code">conservative</field>
+        <field name="display_order">10</field>
+        <field name="annual_growth_rate">2.0</field>
+        <field name="operating_expense_ratio">28.0</field>
+        <field name="salary_ratio">38.0</field>
+        <field name="tuition_share">0.82</field>
+        <field name="admission_share">0.10</field>
+        <field name="activity_share">0.08</field>
+    </record>
+
+    <record id="prediction_scenario_base" model="school.prediction.scenario.preset">
+        <field name="name">Balanced</field>
+        <field name="code">base</field>
+        <field name="display_order">20</field>
+        <field name="annual_growth_rate">4.0</field>
+        <field name="operating_expense_ratio">25.0</field>
+        <field name="salary_ratio">35.0</field>
+        <field name="tuition_share">0.80</field>
+        <field name="admission_share">0.10</field>
+        <field name="activity_share">0.10</field>
+    </record>
+
+    <record id="prediction_scenario_aggressive" model="school.prediction.scenario.preset">
+        <field name="name">Growth Focused</field>
+        <field name="code">aggressive</field>
+        <field name="display_order">30</field>
+        <field name="annual_growth_rate">7.0</field>
+        <field name="operating_expense_ratio">24.0</field>
+        <field name="salary_ratio">34.0</field>
+        <field name="tuition_share">0.78</field>
+        <field name="admission_share">0.10</field>
+        <field name="activity_share">0.12</field>
+    </record>
+</odoo>

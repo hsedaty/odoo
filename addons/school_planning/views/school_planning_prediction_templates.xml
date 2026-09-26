@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="enrollment_revenue_prediction_page" name="Enrollment and Revenue Prediction">
+        <t t-call="web.layout">
+            <div class="sp-page">
+                <div class="sp-toolbar">
+                    <h1 class="sp-title">Enrollment and Revenue Prediction</h1>
+                    <div class="sp-toolbar-actions">
+                        <button type="button" id="sp-reload" class="btn btn-secondary">Reload</button>
+                        <button type="button" id="sp-add-year" class="btn btn-secondary">Add Academic Year</button>
+                        <button type="button" id="sp-save" class="btn btn-primary">Save Changes</button>
+                    </div>
+                </div>
+
+                <div class="sp-status" id="sp-status" role="status" aria-live="polite"></div>
+
+                <div class="sp-card">
+                    <div class="sp-card-body">
+                        <div class="sp-sheet-scroller">
+                            <table id="sp-prediction-table" class="sp-sheet-table" aria-label="Enrollment and Revenue Prediction"></table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <link rel="stylesheet" href="/school_planning/static/src/css/enrollment_revenue_prediction.css"/>
+            <script type="text/javascript" src="/school_planning/static/src/js/enrollment_revenue_prediction.js"></script>
+        </t>
+    </template>
+</odoo>

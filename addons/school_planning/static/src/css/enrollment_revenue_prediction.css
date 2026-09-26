@@ -1,0 +1,118 @@
+.sp-page {
+    padding: 16px;
+}
+
+.sp-toolbar {
+    align-items: center;
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.sp-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.sp-toolbar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.sp-status {
+    font-size: 0.875rem;
+    margin-bottom: 12px;
+    min-height: 20px;
+}
+
+.sp-status.is-success {
+    color: #2e7d32;
+}
+
+.sp-status.is-error {
+    color: #c62828;
+}
+
+.sp-card {
+    background: var(--o-view-background-color, #fff);
+    border: 1px solid var(--o-form-lightsecondary, #dee2e6);
+    border-radius: 6px;
+}
+
+.sp-card-body {
+    padding: 12px;
+}
+
+.sp-sheet-scroller {
+    overflow-x: auto;
+}
+
+.sp-sheet-table {
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    min-width: 1200px;
+    width: 100%;
+}
+
+.sp-sheet-table th,
+.sp-sheet-table td {
+    border: 1px solid #d8dde6;
+    padding: 8px 6px;
+    text-align: center;
+}
+
+.sp-sheet-table thead th {
+    background: #f6f7fa;
+    font-weight: 600;
+}
+
+.sp-sheet-table .sp-left {
+    text-align: left;
+}
+
+.sp-sheet-table .sp-year-cell,
+.sp-sheet-table .sp-academic-cell,
+.sp-sheet-table .sp-grand-cell,
+.sp-sheet-table .sp-item-total-cell,
+.sp-sheet-table .sp-subtotal-row td {
+    background: #f9fafc;
+    font-weight: 600;
+}
+
+.sp-editable {
+    background: #fff;
+    cursor: text;
+    min-width: 72px;
+}
+
+.sp-editable:focus {
+    background: #fff;
+    box-shadow: inset 0 0 0 2px #7c7bad;
+    outline: none;
+}
+
+.sp-readonly-cell {
+    background: #f4f6f9;
+    color: #5f6b7a;
+}
+
+.sp-group-subtitle {
+    color: #6c757d;
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 400;
+    margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+    .sp-page {
+        padding: 8px;
+    }
+
+    .sp-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="asset_school_default_inline_backend" model="ir.asset">
+        <field name="name">School Planning Inline School Default Patch</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/js/school_default_inline.js</field>
+        <field name="active" eval="True"/>
+        <field name="sequence" eval="1000"/>
+    </record>
+</odoo>
