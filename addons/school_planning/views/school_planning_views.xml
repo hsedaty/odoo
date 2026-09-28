@@ -233,6 +233,27 @@
             </form>
         </field>
     </record>
+
+    <record id="view_school_financial_summary_email_wizard_form" model="ir.ui.view">
+        <field name="name">school.financial.summary.email.wizard.form</field>
+        <field name="model">school.financial.summary.email.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Send Financial Summary PDF">
+                <group>
+                    <field name="school_id" invisible="1"/>
+                    <field name="academic_year_ids" widget="many2many_tags" domain="[('school_id', '=', school_id)]" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="mail_server_id" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="email_to" placeholder="client1@example.com, client2@example.com"/>
+                    <field name="subject"/>
+                    <field name="body_html" widget="html"/>
+                </group>
+                <footer>
+                    <button name="action_send_email" type="object" string="Send Email" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
     <record id="view_school_subjects_tree" model="ir.ui.view"><field name="name">school.subjects.tree</field><field name="model">school.subjects</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/></list></field></record>
     <record id="view_school_tax_rules_tree" model="ir.ui.view"><field name="name">school.tax.rules.tree</field><field name="model">school.tax.rules</field><field name="arch" type="xml"><list editable="bottom"><field name="name"/><field name="percentage" widget="percentage"/></list></field></record>
     <record id="view_school_fee_types_tree" model="ir.ui.view"><field name="name">school.fee.types.tree</field><field name="model">school.fee.types</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="is_taxable" widget="boolean_toggle"/><field name="tax_rule_id" domain="[('school_id', '=', False)]" options="{'no_create': True, 'no_create_edit': True}"/></list></field></record>
@@ -752,6 +773,18 @@
                                 <span class="o_stat_text">By Grade / Fee</span>
                             </div>
                         </button>
+                        <button type="object" name="action_print_financial_summary_pdf" class="oe_stat_button" icon="fa-file-pdf-o">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Export</span>
+                                <span class="o_stat_text">Print PDF</span>
+                            </div>
+                        </button>
+                        <button type="object" name="action_open_financial_summary_email_wizard" class="oe_stat_button" icon="fa-envelope">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Share</span>
+                                <span class="o_stat_text">Email PDF</span>
+                            </div>
+                        </button>
                     </div>
                     <group col="2">
                         <group string="Student Dependent Income">
@@ -940,6 +973,22 @@
         <field name="url">/school_planning/enrollment-revenue-prediction</field>
         <field name="target">self</field>
     </record>
+    <record id="action_school_financial_summary_pdf_export" model="ir.actions.server">
+        <field name="name">Export Financial Summary PDF</field>
+        <field name="model_id" ref="model_school_academic_years"/>
+        <field name="binding_model_id" ref="model_school_academic_years"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_print_financial_summary_pdf()</field>
+    </record>
+    <record id="action_school_financial_summary_email_send" model="ir.actions.server">
+        <field name="name">Email Financial Summary PDF</field>
+        <field name="model_id" ref="model_school_academic_years"/>
+        <field name="binding_model_id" ref="model_school_academic_years"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_open_financial_summary_email_wizard()</field>
+    </record>
     <record id="action_school_budgeting_new_ui" model="ir.actions.act_url">
         <field name="name">School Budgeting (New UI)</field>
         <field name="url">/school_planning/new-ui</field>
@@ -961,11 +1010,11 @@
     <!-- 5. MENU STRUCTURE                                       -->
     <!-- ======================================================= -->
 
-    <menuitem id="menu_school_planning_root" name="School Budgeting" sequence="10"/>
+    <menuitem id="menu_school_planning_root" name="School Budgeting" action="action_school_financial_summary" sequence="10"/>
 
     <menuitem id="menu_school_planning_overview" name="Overview" parent="menu_school_planning_root" sequence="10"/>
-    <menuitem id="menu_school_prediction_quick_setup" name="Quick Prediction Setup" parent="menu_school_planning_overview" action="action_school_prediction_quick_setup_wizard" sequence="0"/>
-    <menuitem id="menu_school_financial_summary" name="Financial Summary" parent="menu_school_planning_overview" action="action_school_financial_summary" sequence="1"/>
+    <menuitem id="menu_school_financial_summary" name="Financial Summary" parent="menu_school_planning_overview" action="action_school_financial_summary" sequence="0"/>
+    <menuitem id="menu_school_prediction_quick_setup" name="Quick Prediction Setup" parent="menu_school_planning_overview" action="action_school_prediction_quick_setup_wizard" sequence="1"/>
     <menuitem id="menu_school_enrollment_revenue_prediction" name="Enrollment and Revenue Prediction" parent="menu_school_planning_overview" action="action_school_enrollment_revenue_prediction" sequence="2"/>
     <menuitem id="menu_school_budgeting_new_ui" name="School Budgeting (New UI)" parent="menu_school_planning_overview" action="action_school_budgeting_new_ui" sequence="3"/>
 

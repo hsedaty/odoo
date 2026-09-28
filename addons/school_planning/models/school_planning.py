@@ -1,4 +1,9 @@
+import base64
+import io
 import math
+import shutil
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
@@ -1620,6 +1625,244 @@ class SchoolAcademicYears(models.Model):
         action['view_mode'] = 'list,pivot,graph,form'
         action['context'] = {'group_by': 'grade_group_id', 'default_academic_year_id': self.id}
         return action
+
+    def action_print_financial_summary_pdf(self):
+        records = self
+        if not records:
+            active_ids = self.env.context.get('active_ids') or []
+            records = self.browse(active_ids)
+        if not records:
+            return False
+
+        if shutil.which('wkhtmltopdf'):
+            report = self.env.ref('school_planning.action_report_school_financial_summary_pdf')
+            return report.with_context(discard_logo_check=True).report_action(records)
+
+        ids_param = ','.join(str(record_id) for record_id in records.ids)
+        return {
+            'type': 'ir.actions.act_url',
+            'url': f'/school_planning/financial-summary/pdf?ids={ids_param}',
+            'target': 'self',
+        }
+
+    def action_open_financial_summary_email_wizard(self):
+        records = self
+        if not records:
+            active_ids = self.env.context.get('active_ids') or []
+            records = self.browse(active_ids)
+        records = records.exists()
+        if not records:
+            return False
+
+        schools = records.mapped('school_id')
+        if len(schools) > 1:
+            raise ValidationError('Please select academic years from a single school.')
+
+        school = schools[:1]
+        records = records.filtered(lambda year: year.school_id == school)
+
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Send Financial Summary PDF',
+            'res_model': 'school.financial.summary.email.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_academic_year_ids': [fields.Command.set(records.ids)],
+                'default_school_id': school.id,
+                'default_subject': 'Financial Summary Report',
+            },
+        }
+
+    def _build_financial_summary_pdf_bytes(self):
+        years = self.sorted(key=lambda y: (y.start_date or '', y.academic_year_name or '', y.id))
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        page_width, page_height = A4
+
+        for year_idx, year in enumerate(years):
+            y = page_height - 50
+
+            def draw_line(label, value):
+                nonlocal y
+                pdf.setFont('Helvetica-Bold', 10)
+                pdf.drawString(40, y, label)
+                pdf.setFont('Helvetica', 10)
+                pdf.drawRightString(page_width - 40, y, value)
+                y -= 16
+
+            def fmt_money(amount, currency):
+                return f"{currency} {float(amount or 0.0):,.2f}"
+
+            school_name = year.school_id.name or '-'
+            currency = year.school_id.currency or ''
+
+            pdf.setFont('Helvetica-Bold', 16)
+            pdf.drawString(40, y, 'Financial Summary')
+            y -= 24
+
+            pdf.setFont('Helvetica', 11)
+            pdf.drawString(40, y, f'School: {school_name}')
+            y -= 16
+            pdf.drawString(40, y, f'Academic Year: {year.academic_year_name or "-"}')
+            y -= 16
+            pdf.drawString(40, y, f'Period: {year.start_date or "-"} - {year.end_date or "-"}')
+            y -= 24
+
+            pdf.setFont('Helvetica-Bold', 12)
+            pdf.drawString(40, y, 'Core Financial Metrics')
+            y -= 18
+
+            draw_line('Gross Revenue', fmt_money(year.fee_gross_total, currency))
+            draw_line('Tax Deductions', fmt_money(year.tax_deductions_total, currency))
+            draw_line('Net Revenue After Tax', fmt_money(year.fee_total, currency))
+            draw_line('Operating Expenses', fmt_money(year.expense_total, currency))
+            draw_line('Salaries', fmt_money(year.salary_total, currency))
+            draw_line('New Rooms Equipment Expense', fmt_money(year.new_rooms_expense_total, currency))
+            draw_line('Operating Cost Total', fmt_money(year.operating_cost_total, currency))
+            draw_line('Startup Cost Total', fmt_money(year.startup_cost_total, currency))
+            draw_line('Total Deductions', fmt_money(year.total_deductions, currency))
+            draw_line('Operating Profit', fmt_money(year.operating_profit, currency))
+            draw_line('Net Budget', fmt_money(year.net_budget, currency))
+            draw_line('Net Margin %', f"{float(year.net_margin_pct or 0.0):.2f}%")
+
+            y -= 8
+            pdf.setFont('Helvetica-Bold', 12)
+            pdf.drawString(40, y, 'Enrollment and Unit Economics')
+            y -= 18
+
+            draw_line('Total Enrolled Students', f"{int(year.total_enrolled_students or 0)}")
+            draw_line('Average Revenue Per Student', fmt_money(year.revenue_per_student_avg, currency))
+            draw_line('Average Cost Per Student', fmt_money(year.cost_per_student_avg, currency))
+            draw_line('Revenue Per Student by Grade Level (Avg)', fmt_money(year.revenue_per_student_grade_level_avg, currency))
+            draw_line('Cost Per Student by Grade Level (Avg)', fmt_money(year.cost_per_student_grade_level_avg, currency))
+            draw_line('Revenue Per Student by Grade Group (Avg)', fmt_money(year.revenue_per_student_grade_group_avg, currency))
+            draw_line('Cost Per Student by Grade Group (Avg)', fmt_money(year.cost_per_student_grade_group_avg, currency))
+
+            y -= 8
+            pdf.setFont('Helvetica-Bold', 12)
+            pdf.drawString(40, y, 'Revenue and Cost by Grade Level')
+            y -= 18
+
+            headers = ['Group', 'Level', 'Students', 'Revenue', 'Rev/Student', 'Cost', 'Cost/Student']
+            x_positions = [40, 130, 230, 300, 390, 470, 545]
+            pdf.setFont('Helvetica-Bold', 9)
+            for idx, header in enumerate(headers):
+                if idx >= 2:
+                    pdf.drawRightString(x_positions[idx], y, header)
+                else:
+                    pdf.drawString(x_positions[idx], y, header)
+            y -= 14
+
+            pdf.setFont('Helvetica', 8)
+            for line in year.enrollment_ids:
+                if y < 60:
+                    pdf.showPage()
+                    y = page_height - 50
+                    pdf.setFont('Helvetica-Bold', 10)
+                    pdf.drawString(40, y, f'Continued: {year.academic_year_name or "-"}')
+                    y -= 18
+                    pdf.setFont('Helvetica-Bold', 9)
+                    for idx, header in enumerate(headers):
+                        if idx >= 2:
+                            pdf.drawRightString(x_positions[idx], y, header)
+                        else:
+                            pdf.drawString(x_positions[idx], y, header)
+                    y -= 14
+                    pdf.setFont('Helvetica', 8)
+
+                pdf.drawString(x_positions[0], y, line.grade_group_id.name or '')
+                pdf.drawString(x_positions[1], y, line.grade_level_id.name or '')
+                pdf.drawRightString(x_positions[2], y, str(int(line.student_count or 0)))
+                pdf.drawRightString(x_positions[3], y, f"{float(line.revenue_total or 0.0):,.2f}")
+                pdf.drawRightString(x_positions[4], y, f"{float(line.revenue_per_student or 0.0):,.2f}")
+                pdf.drawRightString(x_positions[5], y, f"{float(line.cost_total or 0.0):,.2f}")
+                pdf.drawRightString(x_positions[6], y, f"{float(line.cost_per_student or 0.0):,.2f}")
+                y -= 12
+
+            if year_idx < len(years) - 1:
+                pdf.showPage()
+
+        pdf.save()
+        data = buffer.getvalue()
+        buffer.close()
+        return data
+
+
+class SchoolFinancialSummaryEmailWizard(models.TransientModel):
+    _name = 'school.financial.summary.email.wizard'
+    _description = 'Send Financial Summary PDF by Email'
+
+    school_id = fields.Many2one('school.schools', string='School', readonly=True)
+    academic_year_ids = fields.Many2many(
+        'school.academic.years',
+        string='Academic Years',
+        required=True,
+        domain="[('school_id', '=', school_id)]",
+    )
+    mail_server_id = fields.Many2one(
+        'ir.mail_server',
+        string='Gmail Outgoing Server',
+        required=True,
+        domain=['|', ('smtp_authentication', '=', 'gmail'), ('smtp_host', 'ilike', 'smtp.gmail.com')],
+        default=lambda self: self.env['ir.mail_server'].search([
+            '|', ('smtp_authentication', '=', 'gmail'), ('smtp_host', 'ilike', 'smtp.gmail.com')
+        ], limit=1),
+        help='Select an outgoing Gmail mail server (OAuth or SMTP login).',
+    )
+    email_to = fields.Char(string='Recipient Emails', required=True, help='Comma-separated email addresses.')
+    subject = fields.Char(string='Subject', required=True, default='Financial Summary Report')
+    body_html = fields.Html(
+        string='Email Body',
+        required=True,
+        default='<p>Hello,</p><p>Please find attached the Financial Summary PDF.</p><p>Best regards,</p>',
+    )
+
+    @api.constrains('school_id', 'academic_year_ids')
+    def _check_academic_years_same_school(self):
+        for wizard in self:
+            if wizard.school_id and any(year.school_id != wizard.school_id for year in wizard.academic_year_ids):
+                raise ValidationError('Selected academic years must belong to the same school as this report.')
+
+    def action_send_email(self):
+        self.ensure_one()
+        years = self.academic_year_ids.sorted(key=lambda y: (y.start_date or '', y.academic_year_name or '', y.id))
+        if not years:
+            raise ValidationError('Please select at least one academic year.')
+        if not self.mail_server_id:
+            raise ValidationError('Please configure and select a Gmail outgoing server with a valid token.')
+
+        pdf_bytes = years._build_financial_summary_pdf_bytes()
+        filename = 'financial_summary_multi_year.pdf' if len(years) > 1 else f'financial_summary_{years[0].academic_year_name}.pdf'
+        attachment = self.env['ir.attachment'].create({
+            'name': filename,
+            'type': 'binary',
+            'datas': base64.b64encode(pdf_bytes),
+            'mimetype': 'application/pdf',
+            'res_model': 'school.academic.years',
+            'res_id': years[0].id,
+        })
+
+        mail_values = {
+            'subject': self.subject,
+            'body_html': self.body_html,
+            'email_to': self.email_to,
+            'mail_server_id': self.mail_server_id.id,
+            'attachment_ids': [(6, 0, [attachment.id])],
+        }
+        mail = self.env['mail.mail'].create(mail_values)
+        mail.send()
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Email sent',
+                'message': 'Financial summary PDF has been emailed successfully.',
+                'type': 'success',
+                'next': {'type': 'ir.actions.act_window_close'},
+            },
+        }
 
     @api.constrains('school_id', 'academic_year_name')
     def _check_unique_academic_year(self):

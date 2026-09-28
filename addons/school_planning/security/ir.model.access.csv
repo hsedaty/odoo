@@ -38,3 +38,4 @@ access_school_prediction_quick_setup_wizard,school.prediction.quick.setup.wizard
 access_school_prediction_quick_setup_year_line,school.prediction.quick.setup.year.line,model_school_prediction_quick_setup_year_line,base.group_user,1,1,1,1
 access_school_prediction_quick_setup_salary_line,school.prediction.quick.setup.salary.line,model_school_prediction_quick_setup_salary_line,base.group_user,1,1,1,1
 access_school_prediction_quick_setup_year_salary_line,school.prediction.quick.setup.year.salary.line,model_school_prediction_quick_setup_year_salary_line,base.group_user,1,1,1,1
+access_school_financial_summary_email_wizard,school.financial.summary.email.wizard,model_school_financial_summary_email_wizard,base.group_user,1,1,1,1

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_school_financial_summary_pdf" model="ir.actions.report">
+        <field name="name">Financial Summary PDF</field>
+        <field name="model">school.academic.years</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">school_planning.report_school_financial_summary_pdf</field>
+        <field name="report_file">school_planning.report_school_financial_summary_pdf</field>
+        <field name="binding_model_id" ref="model_school_academic_years"/>
+        <field name="binding_type">report</field>
+        <field name="print_report_name">'Financial Summary - %s' % (object.academic_year_name or 'Academic Year')</field>
+    </record>
+
+    <template id="report_school_financial_summary_pdf">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="web.basic_layout">
+                    <div class="page">
+                        <h2>Financial Summary</h2>
+                        <div class="mb-3">
+                            <strong>School:</strong>
+                            <span t-field="o.school_id"/>
+                            <br/>
+                            <strong>Academic Year:</strong>
+                            <span t-field="o.academic_year_name"/>
+                            <br/>
+                            <strong>Period:</strong>
+                            <span t-field="o.start_date"/>
+                            <span> - </span>
+                            <span t-field="o.end_date"/>
+                        </div>
+
+                        <table class="table table-sm table-bordered" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th class="text-end">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>Gross Revenue</td><td class="text-end"><span t-field="o.fee_gross_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Tax Deductions</td><td class="text-end"><span t-field="o.tax_deductions_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Net Revenue After Tax</td><td class="text-end"><span t-field="o.fee_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Operating Expenses</td><td class="text-end"><span t-field="o.expense_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Salaries</td><td class="text-end"><span t-field="o.salary_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>New Rooms Equipment Expense</td><td class="text-end"><span t-field="o.new_rooms_expense_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Operating Cost Total</td><td class="text-end"><span t-field="o.operating_cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Startup Cost Total</td><td class="text-end"><span t-field="o.startup_cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Total Deductions</td><td class="text-end"><span t-field="o.total_deductions" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Operating Profit</td><td class="text-end"><span t-field="o.operating_profit" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Net Budget</td><td class="text-end"><span t-field="o.net_budget" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Net Margin %</td><td class="text-end"><span t-field="o.net_margin_pct"/>%</td></tr>
+                            </tbody>
+                        </table>
+
+                        <h4 class="mt-4">Enrollment and Unit Economics</h4>
+                        <table class="table table-sm table-bordered" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th class="text-end">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>Total Enrolled Students</td><td class="text-end"><span t-field="o.total_enrolled_students"/></td></tr>
+                                <tr><td>Average Revenue Per Student</td><td class="text-end"><span t-field="o.revenue_per_student_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Average Cost Per Student</td><td class="text-end"><span t-field="o.cost_per_student_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Revenue Per Student by Grade Level (Avg)</td><td class="text-end"><span t-field="o.revenue_per_student_grade_level_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Cost Per Student by Grade Level (Avg)</td><td class="text-end"><span t-field="o.cost_per_student_grade_level_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Revenue Per Student by Grade Group (Avg)</td><td class="text-end"><span t-field="o.revenue_per_student_grade_group_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr><td>Cost Per Student by Grade Group (Avg)</td><td class="text-end"><span t-field="o.cost_per_student_grade_group_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                            </tbody>
+                        </table>
+
+                        <h4 class="mt-4">Revenue and Cost by Grade Level</h4>
+                        <table class="table table-sm table-bordered" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Grade Group</th>
+                                    <th>Grade Level</th>
+                                    <th class="text-end">Students</th>
+                                    <th class="text-end">Revenue</th>
+                                    <th class="text-end">Revenue / Student</th>
+                                    <th class="text-end">Cost</th>
+                                    <th class="text-end">Cost / Student</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="o.enrollment_ids" t-as="line">
+                                    <td><span t-field="line.grade_group_id"/></td>
+                                    <td><span t-field="line.grade_level_id"/></td>
+                                    <td class="text-end"><span t-field="line.student_count"/></td>
+                                    <td class="text-end"><span t-field="line.revenue_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
+                                    <td class="text-end"><span t-field="line.revenue_per_student" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
+                                    <td class="text-end"><span t-field="line.cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
+                                    <td class="text-end"><span t-field="line.cost_per_student" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

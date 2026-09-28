@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.15.0',
+    'version': '19.0.1.19.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """
@@ -14,7 +14,7 @@ School Budget & Planning System.
   expense and profit charts).
 """,
     'author': 'Abdullah Karakuyu',
-    'depends': ['base', 'web'],
+    'depends': ['base', 'web', 'mail', 'google_gmail'],
     'post_init_hook': 'post_init_hook',
     'data': [
         'security/ir.model.access.csv',
@@ -25,6 +25,7 @@ School Budget & Planning System.
         'views/school_planning_frontend_templates.xml',
         'views/school_planning_prediction_templates.xml',
         'views/school_planning_views.xml',
+        'views/school_financial_summary_report.xml',
         'views/school_financial_report_views.xml',
     ],
     'installable': True,
