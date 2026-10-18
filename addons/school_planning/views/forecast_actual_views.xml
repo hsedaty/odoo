@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_school_year_workspace" model="ir.ui.view">
+        <field name="name">school.year.workspace</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <form string="School Year Workspace" class="o_school_year_workspace">
+                <header>
+                    <button name="action_print_financial_summary_pdf" type="object" string="PDF Export" icon="fa-file-pdf-o"/>
+                    <button name="action_open_financial_summary_email_wizard" type="object" string="Email PDFs" icon="fa-envelope"/>
+                    <button name="action_open_actual" type="object" string="Enter Actuals" icon="fa-pencil" class="btn-primary" invisible="dataset_type != 'forecast'"/>
+                    <button name="action_prepare_actual_entry" type="object" string="Refresh Entry Rows" icon="fa-refresh" invisible="dataset_type != 'actual'"/>
+                    <button name="action_view_baseline" type="object" string="View Forecast" icon="fa-line-chart" invisible="not forecast_year_id"/>
+                    <button name="action_load_from_forecast" type="object" string="Load from Forecast" icon="fa-download" confirm="Fill Actual sections that have not been started from this year's Forecast? Existing manual entries and completed sections will be kept. Loaded figures remain In Progress." invisible="dataset_type != 'actual' or not forecast_year_id"/>
+                    <button name="action_open_comparison" type="object" string="Compare" icon="fa-columns" invisible="dataset_type == 'legacy' or (dataset_type == 'actual' and not forecast_year_id)"/>
+                    <button name="action_freeze_baseline" type="object" string="Freeze Baseline" icon="fa-lock" confirm="Approve and permanently freeze this forecast's totals and inputs?" invisible="dataset_type != 'forecast' or baseline_locked"/>
+                    <button name="action_complete_actual" type="object" string="Mark All Complete" icon="fa-check" confirm="Confirm all annual actual figures are complete, including sections with zero activity." invisible="dataset_type != 'actual' or actual_status == 'complete'"/>
+                    <button name="action_classify_forecast" type="object" string="Use as Forecast" icon="fa-line-chart" confirm="Classify this historical data as Forecast? Existing figures will be preserved." invisible="dataset_type != 'legacy'"/>
+                    <button name="action_classify_actual" type="object" string="Use as Actual" icon="fa-pencil" confirm="Classify this historical data as Actual? Review payroll headcounts and tax inputs afterwards." invisible="dataset_type != 'legacy'"/>
+                </header>
+                <sheet>
+                    <field name="baseline_locked" invisible="1"/>
+                    <div class="oe_title"><h1><field name="academic_year_name" readonly="baseline_locked or forecast_year_id"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="school_id" readonly="baseline_locked or forecast_year_id"/>
+                            <field name="dataset_type" readonly="id"/>
+                            <field name="forecast_year_id" domain="[('school_id', '=', school_id), ('dataset_type', '=', 'forecast'), ('start_date', '=', start_date), ('end_date', '=', end_date)]" invisible="dataset_type != 'actual'" options="{'no_create': True}"/>
+                        </group>
+                        <group>
+                            <field name="start_date" required="dataset_type != 'legacy'" readonly="baseline_locked or forecast_year_id"/>
+                            <field name="end_date" required="dataset_type != 'legacy'" readonly="baseline_locked or forecast_year_id"/>
+                            <field name="actual_status" widget="badge" invisible="dataset_type != 'actual'"/>
+                        </group>
+                    </group>
+                    <div class="row g-3 border-top border-bottom py-3 mb-3">
+                        <div class="col-6 col-lg-3"><div class="text-muted">Students</div><field name="total_enrolled_students" class="fs-4"/></div>
+                        <div class="col-6 col-lg-3"><div class="text-muted">Gross Revenue</div><field name="fee_gross_total" class="fs-4"/></div>
+                        <div class="col-6 col-lg-3"><div class="text-muted">Operating Costs</div><field name="operating_cost_total" class="fs-4"/></div>
+                        <div class="col-6 col-lg-3"><div class="text-muted">Net Budget</div><field name="net_budget" class="fs-4"/></div>
+                    </div>
+                    <notebook>
+                        <page string="Enrollment">
+                            <group invisible="dataset_type != 'actual'"><field name="enrollment_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group><field name="total_students_input" readonly="baseline_locked"/></group>
+                            <field name="enrollment_ids" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="grade_level_id" domain="[('school_id', '=', parent.school_id)]"/><field name="student_count"/><field name="class_count"/></list>
+                            </field>
+                        </page>
+                        <page string="Income">
+                            <group invisible="dataset_type != 'actual'"><field name="income_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group invisible="dataset_type == 'actual'"><field name="annual_fee_input" readonly="baseline_locked"/></group>
+                            <group string="Fee Entry" invisible="dataset_type != 'actual'">
+                                <group><field name="actual_fee_type_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}"/><field name="actual_fee_amount"/></group>
+                                <group><field name="actual_fee_grade_ids" widget="many2many_tags" domain="[('school_id', '=', school_id)]" options="{'no_create': True}"/><field name="actual_fee_tax_rule_ids" widget="many2many_tags" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}" options="{'no_create': True}"/></group>
+                                <button name="action_apply_actual_fee" type="object" string="Apply Fee to Grades" icon="fa-check" confirm="Apply this fee amount and selected tax types to the selected grades, or all grades if none are selected? Other fees and transportation participant counts will be kept."/>
+                            </group>
+                            <separator string="Fees &amp; Tax Mapping" invisible="dataset_type != 'actual'"/>
+                            <field name="fee_value_ids" widget="school_income_accordion" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
+                                <list editable="bottom" limit="1000"><field name="grade_level_id" domain="[('school_id', '=', parent.school_id)]"/><field name="fee_type_id" domain="[('school_id', '=', parent.school_id)]" context="{'default_school_id': parent.school_id}"/><field name="amount" string="Fee / Student"/><field name="actual_applicability" column_invisible="parent.dataset_type != 'actual'"/><field name="actual_selected_students" readonly="actual_applicability != 'selected'" column_invisible="parent.dataset_type != 'actual'"/><field name="actual_tax_rule_ids" widget="many2many_tags" domain="[('school_id', '=', parent.school_id)]" context="{'default_school_id': parent.school_id}" options="{'no_create': True}" column_invisible="parent.dataset_type != 'actual'"/><field name="actual_effective_tax_percent" column_invisible="parent.dataset_type != 'actual'"/><field name="actual_tax_percent" string="Legacy Tax %" optional="hide" readonly="actual_tax_rule_ids" column_invisible="parent.dataset_type != 'actual'"/><field name="gross_revenue_amount" sum="Gross Revenue"/><field name="tax_amount" sum="Tax" optional="show"/><field name="revenue_amount" sum="Net Revenue"/></list>
+                            </field>
+                            <separator string="Tax Types" invisible="dataset_type != 'actual'"/>
+                            <button name="action_open_actual_tax_types" type="object" string="Manage Tax Types" icon="fa-percent" invisible="dataset_type != 'actual'"/>
+                            <field name="actual_used_tax_rule_ids" readonly="1" nolabel="1" invisible="dataset_type != 'actual'"><list create="false" delete="false"><field name="name"/><field name="percentage" widget="percentage"/></list></field>
+                        </page>
+                        <page string="Expenses">
+                            <group invisible="dataset_type != 'actual'"><field name="expenses_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <field name="operating_expense_ids" widget="school_expense_hierarchy" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id, 'default_school_id': school_id, 'default_cost_bucket': 'operating'}">
+                                <list editable="bottom" limit="1000"><field name="expense_category_id" domain="[('school_id', '=', parent.school_id), ('cost_bucket', '=', 'operating')]" width="230px"/><field name="expense_item_id" domain="[('school_id', '=', parent.school_id), ('expense_category_id', '=', expense_category_id)]" context="{'default_school_id': parent.school_id}" width="320px"/><field name="cost_bucket" column_invisible="1"/><field name="amount" string="Annual Amount" width="160px"/></list>
+                                <form string="Expense">
+                                    <group><field name="academic_year_id" invisible="1"/><field name="cost_bucket" invisible="1"/>
+                                        <field name="expense_category_id" domain="[('school_id', '=', context.get('default_school_id')), ('cost_bucket', '=', 'operating'), ('id', 'not in', context.get('excluded_expense_category_ids', []))]" context="{'default_school_id': context.get('default_school_id'), 'default_display_order': 10}" options="{'no_quick_create': True}"/>
+                                        <field name="expense_item_id" string="Item (Optional)" required="context.get('school_expense_item_entry', False)" domain="[('expense_category_id', '=', expense_category_id), ('id', 'not in', context.get('excluded_expense_item_ids', []))]" context="{'default_school_id': context.get('default_school_id'), 'default_expense_category_id': expense_category_id, 'default_display_order': 10, 'skip_expense_template_sync': True}" options="{'no_quick_create': True}"/>
+                                        <field name="amount"/>
+                                    </group>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Payroll">
+                            <group invisible="dataset_type != 'actual'"><field name="payroll_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group>
+                                <field name="payroll_percent_input" readonly="baseline_locked or dataset_type == 'actual'"/>
+                                <field name="payroll_amount_input" readonly="baseline_locked or dataset_type == 'actual'"/>
+                                <field name="payroll_summary_enabled" widget="boolean_toggle" readonly="baseline_locked" invisible="dataset_type == 'actual'"/>
+                                <field name="payroll_rate" invisible="1"/>
+                                <field name="payroll_fixed_amount" invisible="1"/>
+                                <field name="payroll_basis" invisible="not payroll_summary_enabled" widget="radio" options="{'horizontal': True}" readonly="baseline_locked"/>
+                                <field name="payroll_revenue_basis" invisible="not payroll_summary_enabled or payroll_basis != 'percent'" widget="radio" options="{'horizontal': True}" readonly="baseline_locked"/>
+                            </group>
+                            <group invisible="dataset_type != 'actual'"><field name="actual_payroll_months"/><button name="action_apply_actual_payroll_months" type="object" string="Apply Payroll Months" icon="fa-calendar" confirm="Apply these paid months to every detailed payroll row in this Actual year?"/></group>
+                            <field name="employment_salary_ids" nolabel="1" readonly="baseline_locked" invisible="payroll_summary_enabled and dataset_type != 'actual'" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="staff_position_id" domain="[('school_id', '=', parent.school_id)]" width="220px"/><field name="actual_employee_count" string="Employees" column_invisible="parent.dataset_type != 'actual'" width="120px"/><field name="employee_count" column_invisible="parent.dataset_type == 'actual'" width="120px"/><field name="monthly_salary" string="Monthly Salary" width="150px"/><field name="months_paid" width="100px"/><field name="bonus" string="Bonus" width="110px"/><field name="annual_cost" string="Annual Payroll" sum="Annual Payroll" width="140px"/></list>
+                            </field>
+                            <field name="payroll_expense_ids" widget="school_expense_hierarchy" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id, 'default_school_id': school_id, 'default_cost_bucket': 'employee'}">
+                                <list editable="bottom" limit="1000"><field name="expense_category_id"/><field name="expense_item_id"/><field name="cost_bucket" column_invisible="1"/><field name="amount"/></list>
+                                <form string="Payroll Category"><group><field name="academic_year_id" invisible="1"/><field name="cost_bucket" invisible="1"/>
+                                    <field name="expense_category_id" domain="[('school_id', '=', context.get('default_school_id')), ('cost_bucket', '=', 'employee'), ('id', 'not in', context.get('excluded_expense_category_ids', []))]" context="{'default_school_id': context.get('default_school_id'), 'default_cost_bucket': 'employee', 'default_display_order': 10}" options="{'no_quick_create': True}"/>
+                                    <field name="expense_item_id" string="Item (Optional)" required="context.get('school_expense_item_entry', False)" domain="[('expense_category_id', '=', expense_category_id), ('id', 'not in', context.get('excluded_expense_item_ids', []))]" context="{'default_school_id': context.get('default_school_id'), 'default_expense_category_id': expense_category_id, 'default_display_order': 10, 'skip_expense_template_sync': True}" options="{'no_quick_create': True}"/><field name="amount"/>
+                                </group></form>
+                            </field>
+                            <separator string="Staffing Overrides" invisible="dataset_type != 'actual'"/>
+                            <field name="staffing_override_ids" nolabel="1" invisible="dataset_type != 'actual'" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="staff_position_id" domain="[('school_id', '=', parent.school_id)]" context="{'default_school_id': parent.school_id}"/><field name="employee_count" sum="Employees"/></list>
+                            </field>
+                        </page>
+                        <page string="Rooms &amp; Assets">
+                            <group invisible="dataset_type != 'actual'"><field name="assets_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group><field name="students_per_classroom" readonly="baseline_locked"/><field name="infrastructure_mode" readonly="baseline_locked"/><field name="required_classrooms"/></group>
+                            <button name="action_seed_asset_prices" type="object" string="Load Room &amp; Asset Seeds" icon="fa-plus" invisible="baseline_locked or infrastructure_mode != 'new'"/>
+                            <group><field name="new_rooms_expense_total" string="Total Cost of New Rooms"/><field name="startup_cost_total" string="Room / Asset Investment"/></group>
+                            <separator string="Rooms"/>
+                            <field name="room_plan_ids" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="room_type_id" domain="[('school_id', '=', parent.school_id)]"/><field name="calculated_required_rooms"/><field name="existing_rooms"/><field name="manual_new_rooms"/><field name="calculated_new_rooms" string="New Rooms Needed"/><field name="new_rooms_asset_cost"/></list>
+                            </field>
+                            <separator string="Asset Prices"/>
+                            <field name="asset_price_ids" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="asset_item_id" domain="[('school_id', '=', parent.school_id)]"/><field name="unit_price"/><field name="planning_seed_quantity" optional="hide"/><field name="planning_seed_basis" optional="hide"/><field name="required_quantity" optional="show"/><field name="owned_quantity" optional="hide"/><field name="purchase_quantity" optional="show"/><field name="startup_cost" sum="Asset Investment"/></list>
+                            </field>
+                            <separator string="Asset Transactions" invisible="dataset_type != 'actual'"/>
+                            <field name="asset_transaction_ids" nolabel="1" invisible="dataset_type != 'actual'" context="{'default_academic_year_id': id}">
+                                <list editable="bottom"><field name="asset_item_id" domain="[('school_id', '=', parent.school_id)]" context="{'default_school_id': parent.school_id}"/><field name="transaction_type"/><field name="quantity" sum="Quantity"/><field name="transaction_date"/><field name="notes"/></list>
+                            </field>
+                        </page>
+                        <page string="Expansion Projects" invisible="dataset_type != 'actual'">
+                            <field name="expansion_project_ids" nolabel="1" context="{'default_academic_year_id': id, 'default_school_id': school_id}">
+                                <list><field name="name"/><field name="start_date"/><field name="end_date"/></list>
+                                <form string="Expansion Project">
+                                    <sheet><field name="academic_year_id" invisible="1"/><field name="school_id" invisible="1"/><group><field name="name"/><field name="start_date"/><field name="end_date"/><field name="description"/></group>
+                                        <field name="project_room_ids" nolabel="1"><list editable="bottom"><field name="room_type_id" domain="[('school_id', '=', parent.school_id)]" context="{'default_school_id': parent.school_id}"/><field name="room_count" sum="Rooms"/></list></field>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Teaching Load">
+                            <group invisible="dataset_type != 'actual'"><field name="teaching_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group><field name="classroom_weekly_hours" readonly="baseline_locked"/><field name="teacher_weekly_hours" readonly="baseline_locked"/><field name="required_teachers"/></group>
+                            <field name="subject_distribution_ids" widget="school_income_accordion" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
+                                <list editable="bottom" limit="1000"><field name="grade_level_id" domain="[('school_id', '=', parent.school_id)]"/><field name="subject_id" domain="[('school_id', '=', parent.school_id)]"/><field name="weekly_hours" sum="Weekly Hours"/><field name="credits" optional="show"/><field name="total_teaching_hours" sum="Teaching Hours"/></list>
+                            </field>
+                        </page>
+                        <page string="Tools &amp; Setup" invisible="dataset_type != 'actual'">
+                            <group>
+                                <group><field name="actual_planning_tool"/><button name="action_actual_planning_tool" type="object" string="Open Workflow" icon="fa-external-link"/>
+                                    <field name="actual_financial_tool"/><button name="action_actual_financial_tool" type="object" string="Open Financial Entries" icon="fa-external-link"/></group>
+                                <group><field name="actual_asset_tool"/><button name="action_actual_asset_tool" type="object" string="Open Asset Entries" icon="fa-external-link"/>
+                                    <field name="actual_setup_tool"/><button name="action_actual_setup_tool" type="object" string="Open Setup" icon="fa-cog"/></group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_school_actual_years_list" model="ir.ui.view">
+        <field name="name">school.actual.years.list</field><field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <list string="Actual Entry"><field name="school_id"/><field name="academic_year_name"/><field name="dataset_type" widget="badge"/><field name="actual_status" widget="badge"/><field name="total_enrolled_students"/><field name="fee_gross_total"/><field name="net_budget"/><field name="forecast_year_id" column_invisible="1"/><button name="action_open_comparison" type="object" string="Compare" icon="fa-columns" invisible="not forecast_year_id"/></list>
+        </field>
+    </record>
+    <record id="view_actual_salary_details" model="ir.ui.view">
+        <field name="name">school.actual.salary.details</field><field name="model">school.employment.salaries</field><field name="inherit_id" ref="school_planning.view_school_employment_salaries_tree"/>
+        <field name="arch" type="xml"><xpath expr="//field[@name='employee_count']" position="before"><field name="dataset_type" column_invisible="1"/><field name="actual_employee_count" readonly="dataset_type != 'actual'" optional="show"/></xpath></field>
+    </record>
+    <record id="view_actual_fee_details" model="ir.ui.view">
+        <field name="name">school.actual.fee.details</field><field name="model">school.fee.values</field><field name="inherit_id" ref="school_planning.view_school_fee_values_tree"/>
+        <field name="arch" type="xml"><xpath expr="//field[@name='amount']" position="after"><field name="school_id" column_invisible="1"/><field name="dataset_type" column_invisible="1"/><field name="actual_applicability" readonly="dataset_type != 'actual'" optional="show"/><field name="actual_selected_students" readonly="dataset_type != 'actual' or actual_applicability != 'selected'" optional="show"/><field name="actual_tax_rule_ids" widget="many2many_tags" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}" readonly="dataset_type != 'actual'" optional="show"/><field name="actual_effective_tax_percent" optional="show"/><field name="actual_tax_percent" string="Legacy Tax %" readonly="dataset_type != 'actual' or actual_tax_rule_ids" optional="hide"/><field name="gross_revenue_amount" sum="Gross Revenue" optional="show"/><field name="tax_amount" sum="Tax" optional="show"/><field name="revenue_amount" sum="Net Revenue" optional="show"/></xpath></field>
+    </record>
+    <record id="view_school_forecast_comparison" model="ir.ui.view">
+        <field name="name">school.forecast.comparison.form</field><field name="model">school.forecast.comparison</field>
+        <field name="arch" type="xml">
+            <form string="Forecast vs Actual" create="false" class="o_school_forecast_comparison">
+                <header><button name="action_previous_year" type="object" icon="fa-chevron-left" title="Previous Year"/><button name="action_next_year" type="object" icon="fa-chevron-right" title="Next Year"/><button name="action_enter_actual" type="object" string="Enter Actuals" icon="fa-pencil" class="btn-primary" invisible="not forecast_year_id"/></header>
+                <sheet>
+                    <group>
+                        <group><field name="school_id" options="{'no_create': True}"/><field name="forecast_year_id" domain="[('school_id', '=', school_id), ('dataset_type', '=', 'forecast')]" options="{'no_create': True}"/><field name="currency_id" readonly="1"/></group>
+                        <group><field name="baseline_locked"/><field name="actual_year_id" readonly="1"/><field name="actual_status" widget="badge"/></group>
+                    </group>
+                    <field name="line_ids" nolabel="1" readonly="1">
+                        <list create="false" delete="false" decoration-muted="result == 'Not entered'" decoration-warning="result == 'Provisional'">
+                            <field name="name"/><field name="forecast_display" class="text-end"/><field name="actual_display" class="text-end"/><field name="difference_display" class="text-end"/><field name="percentage" class="text-end"/><field name="progress"/><field name="result" decoration-success="result == 'Favorable'" decoration-danger="result == 'Unfavorable'"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_school_forecast_actual_school_form" model="ir.ui.view">
+        <field name="name">school.forecast.actual.school.form</field><field name="model">school.schools</field><field name="inherit_id" ref="school_planning.view_school_schools_form"/>
+        <field name="arch" type="xml"><xpath expr="//header" position="inside"><button name="action_open_actuals" type="object" string="Enter Actuals" icon="fa-pencil"/><button name="action_open_comparison" type="object" string="Compare" icon="fa-columns"/></xpath></field>
+    </record>
+    <record id="view_school_forecast_actual_school_list" model="ir.ui.view">
+        <field name="name">school.forecast.actual.school.list</field><field name="model">school.schools</field><field name="inherit_id" ref="school_planning.view_school_schools_tree"/>
+        <field name="arch" type="xml"><xpath expr="//list" position="inside"><button name="action_open_actuals" type="object" string="Enter Actuals" icon="fa-pencil"/><button name="action_open_comparison" type="object" string="Compare" icon="fa-columns"/></xpath></field>
+    </record>
+    <record id="view_school_forecast_actual_summary_list" model="ir.ui.view">
+        <field name="name">school.forecast.actual.summary.list</field><field name="model">school.academic.years</field><field name="inherit_id" ref="school_planning.view_school_academic_years_financial_summary_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='academic_year_name']" position="after"><field name="dataset_type" widget="badge"/><field name="baseline_locked"/><field name="actual_status" widget="badge"/></xpath>
+            <xpath expr="//list" position="inside"><field name="forecast_year_id" column_invisible="1"/><button name="action_open_forecast" type="object" string="Open Workspace" icon="fa-folder-open"/><button name="action_open_actual" type="object" string="Enter Actuals" icon="fa-pencil" invisible="dataset_type != 'forecast'"/><button name="action_open_comparison" type="object" string="Compare" icon="fa-columns" invisible="dataset_type == 'legacy' or (dataset_type == 'actual' and not forecast_year_id)"/></xpath>
+        </field>
+    </record>
+    <record id="view_school_forecast_actual_years_list" model="ir.ui.view">
+        <field name="name">school.forecast.actual.years.list</field><field name="model">school.academic.years</field><field name="inherit_id" ref="school_planning.view_school_academic_years_tree"/>
+        <field name="arch" type="xml"><xpath expr="//field[@name='academic_year_name']" position="after"><field name="dataset_type" readonly="id"/><field name="baseline_locked" column_invisible="1"/></xpath><xpath expr="//list" position="inside"><button name="action_open_forecast" type="object" string="Open Workspace" icon="fa-folder-open"/></xpath></field>
+    </record>
+    <record id="action_school_actual_entry" model="ir.actions.act_window">
+        <field name="name">Actual Entry</field><field name="res_model">school.academic.years</field><field name="view_mode">list,form</field><field name="view_id" ref="view_school_actual_years_list"/><field name="domain">[('dataset_type', '=', 'actual')]</field><field name="context">{'default_dataset_type': 'actual'}</field>
+    </record>
+    <record id="view_school_forecast_actual_summary_search" model="ir.ui.view">
+        <field name="name">school.forecast.actual.summary.search</field><field name="model">school.academic.years</field><field name="inherit_id" ref="school_planning.view_school_academic_years_financial_summary_search"/>
+        <field name="arch" type="xml"><xpath expr="//search" position="inside"><searchpanel><field name="school_id" select="one"/><field name="dataset_type" select="one"/></searchpanel><filter name="group_dataset" string="Dataset" context="{'group_by': 'dataset_type'}"/></xpath></field>
+    </record>
+    <record id="view_school_forecast_actual_summary_kanban" model="ir.ui.view">
+        <field name="name">school.forecast.actual.summary.kanban</field><field name="model">school.academic.years</field><field name="inherit_id" ref="school_planning.view_school_academic_years_financial_summary_kanban"/>
+        <field name="arch" type="xml"><xpath expr="//strong[hasclass('fs-5', 'text-dark')]" position="after"><div><field name="dataset_type" widget="badge"/></div></xpath></field>
+    </record>
+    <record id="view_school_forecast_actual_summary_form" model="ir.ui.view">
+        <field name="name">school.forecast.actual.summary.form</field><field name="model">school.academic.years</field><field name="inherit_id" ref="school_planning.view_school_academic_years_financial_summary_form"/>
+        <field name="arch" type="xml"><xpath expr="//sheet" position="before"><header><button name="action_open_forecast" type="object" string="Open Workspace" icon="fa-pencil"/><button name="action_open_actual" type="object" string="Enter Actuals" icon="fa-pencil" invisible="dataset_type != 'forecast'"/><button name="action_open_comparison" type="object" string="Compare" icon="fa-columns" invisible="dataset_type == 'legacy'"/></header></xpath><xpath expr="//h1" position="after"><field name="dataset_type" widget="badge"/></xpath></field>
+    </record>
+    <record id="view_school_prediction_cost_bucket" model="ir.ui.view">
+        <field name="name">school.prediction.cost.bucket</field><field name="model">school.prediction.quick.setup.wizard</field><field name="inherit_id" ref="school_planning.view_school_prediction_quick_setup_wizard_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='repeating_expense_line_ids']/list/field[@name='name']" position="attributes"><attribute name="string">Expense Category</attribute><attribute name="width">230px</attribute></xpath>
+            <xpath expr="//field[@name='extreme_expense_line_ids']/list/field[@name='name']" position="attributes"><attribute name="string">Expense Category</attribute><attribute name="width">230px</attribute></xpath>
+            <xpath expr="//field[@name='repeating_expense_line_ids']/list/field[@name='name']" position="after"><field name="seed_id" column_invisible="True"/><field name="school_category_id" column_invisible="True"/><field name="item_templates" column_invisible="True"/><field name="cost_bucket" column_invisible="True"/></xpath>
+            <xpath expr="//field[@name='extreme_expense_line_ids']/list/field[@name='name']" position="after"><field name="seed_id" column_invisible="True"/><field name="school_category_id" column_invisible="True"/><field name="item_templates" column_invisible="True"/><field name="cost_bucket" column_invisible="True"/></xpath>
+        </field>
+    </record>
+    <record id="action_school_actual_entry_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field><field name="view_mode">form</field><field name="view_id" ref="view_school_year_workspace"/><field name="act_window_id" ref="action_school_actual_entry"/>
+    </record>
+    <record id="action_school_actual_entry_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field><field name="view_mode">list</field><field name="view_id" ref="view_school_actual_years_list"/><field name="act_window_id" ref="action_school_actual_entry"/>
+    </record>
+    <record id="action_school_financial_summary_kanban" model="ir.actions.act_window.view">
+        <field name="sequence">1</field><field name="view_mode">kanban</field><field name="view_id" ref="school_planning.view_school_academic_years_financial_summary_kanban"/><field name="act_window_id" ref="school_planning.action_school_financial_summary"/>
+    </record>
+    <record id="action_school_financial_summary_list" model="ir.actions.act_window.view">
+        <field name="sequence">2</field><field name="view_mode">list</field><field name="view_id" ref="school_planning.view_school_academic_years_financial_summary_tree"/><field name="act_window_id" ref="school_planning.action_school_financial_summary"/>
+    </record>
+    <record id="action_school_financial_summary_workspace" model="ir.actions.act_window.view">
+        <field name="sequence">3</field><field name="view_mode">form</field><field name="view_id" ref="view_school_year_workspace"/><field name="act_window_id" ref="school_planning.action_school_financial_summary"/>
+    </record>
+    <record id="action_school_comparison_menu" model="ir.actions.server">
+        <field name="name">Forecast vs Actual</field><field name="model_id" ref="model_school_schools"/><field name="state">code</field>
+        <field name="code">school = env['school.schools'].search([], limit=1)
+action = school.action_open_comparison() if school else env['ir.actions.actions']._for_xml_id('school_planning.action_school_schools')</field>
+    </record>
+    <menuitem id="menu_school_actual_entry" name="Actual Entry" parent="school_planning.menu_school_planning_overview" action="action_school_actual_entry" sequence="2"/>
+    <menuitem id="menu_school_forecast_comparison" name="Forecast vs Actual" parent="school_planning.menu_school_planning_overview" action="action_school_comparison_menu" sequence="3"/>
+</odoo>

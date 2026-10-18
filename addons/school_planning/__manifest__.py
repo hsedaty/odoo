@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.19.0',
+    'version': '19.0.1.36.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """
@@ -22,11 +22,14 @@ School Budget & Planning System.
         'data/grade_presets.xml',
         'data/subject_presets.xml',
         'data/prediction_scenarios.xml',
+        'data/prediction_seed_configuration.xml',
         'views/school_planning_frontend_templates.xml',
         'views/school_planning_prediction_templates.xml',
         'views/school_planning_views.xml',
         'views/school_financial_summary_report.xml',
         'views/school_financial_report_views.xml',
+        'views/forecast_actual_views.xml',
+        'views/efficiency_views.xml',
     ],
     'installable': True,
     'application': True,

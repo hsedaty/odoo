@@ -95,6 +95,87 @@ class SchoolSchools(models.Model):
     name = fields.Char(string='Name', required=True, size=255)
     country = fields.Char(string='Country', size=100)
     currency = fields.Char(string='Currency', required=True, size=3)
+    country_id = fields.Many2one('res.country', string='Country')
+    currency_id = fields.Many2one('res.currency', string='Currency')
+    subject_ids = fields.One2many('school.subjects', 'school_id', string='Subjects')
+    tax_rule_ids = fields.One2many('school.tax.rules', 'school_id', string='Tax Types')
+
+    def _catalog_selection_values(self, values):
+        values = dict(values)
+        for field_name, text_field, model_name in (
+            ('country_id', 'country', 'res.country'),
+            ('currency_id', 'currency', 'res.currency'),
+        ):
+            catalog = self.env[model_name].with_context(active_test=False)
+            if field_name in values:
+                selection = catalog.browse(values[field_name]).exists() if values[field_name] else catalog.browse()
+                values[text_field] = selection.name if selection else False
+            elif text_field in values:
+                text_value = (values[text_field] or '').strip()
+                domain = [('name', '=ilike', text_value)]
+                if model_name == 'res.country':
+                    domain = ['|', ('code', '=ilike', text_value)] + domain
+                selection = catalog.search(domain, limit=1) if text_value else catalog.browse()
+                values[field_name] = selection.id or False
+                if selection:
+                    values[text_field] = selection.name
+        return values
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        schools = super().create([self._catalog_selection_values(values) for values in vals_list])
+        schools._ensure_tax_types()
+        return schools
+
+    def _ensure_tax_types(self):
+        configuration = self.env.ref('school_planning.prediction_seed_configuration', raise_if_not_found=False)
+        if not configuration:
+            return
+        for school in self:
+            for seed in configuration.tax_ids:
+                if not school.tax_rule_ids.filtered(lambda tax: tax.name.strip().casefold() == seed.name.strip().casefold()):
+                    self.env['school.tax.rules'].create({'school_id': school.id, 'name': seed.name, 'percentage': seed.percentage})
+
+    def _ensure_expense_seeds(self):
+        configuration = self.env.ref('school_planning.prediction_seed_configuration', raise_if_not_found=False)
+        if not configuration:
+            return
+        for school in self:
+            for seed in configuration.expense_ids:
+                category = self.env['school.expense.categories'].search([
+                    ('school_id', '=', school.id), ('name', '=ilike', seed.name.strip())], limit=1)
+                if not category:
+                    category = self.env['school.expense.categories'].create({
+                        'school_id': school.id, 'name': seed.name, 'display_order': seed.display_order,
+                        'cost_bucket': seed.cost_bucket, 'prediction_seed_id': seed.id})
+                for item_seed in seed.item_ids:
+                    if not category.expense_item_ids.filtered(lambda item: item.name.strip().casefold() == item_seed.name.strip().casefold()):
+                        self.env['school.expense.items'].create({'school_id': school.id, 'expense_category_id': category.id,
+                            'name': item_seed.name, 'display_order': item_seed.display_order})
+
+    def write(self, values):
+        return super().write(self._catalog_selection_values(values))
+
+    def action_open_quick_prediction(self):
+        self.ensure_one()
+        if not self.subject_ids:
+            raise ValidationError('Configure subjects for this school before starting a prediction.')
+        action = self.env.ref('school_planning.action_school_prediction_quick_setup_wizard').read()[0]
+        action['context'] = {'default_school_id': self.id}
+        return action
+
+    def action_open_financial_summary(self):
+        self.ensure_one()
+        action = self.env.ref('school_planning.action_school_financial_summary').read()[0]
+        action['domain'] = [('school_id', '=', self.id)]
+        action['context'] = {}
+        action['view_mode'] = 'list,form'
+        action['views'] = [
+            (self.env.ref('school_planning.view_school_academic_years_financial_summary_tree').id, 'list'),
+            (self.env.ref('school_planning.view_school_academic_years_financial_summary_form').id, 'form'),
+        ]
+        action['view_id'] = action['views'][0][0]
+        return action
 
     def action_open_grade_setup(self):
         self.ensure_one()
@@ -351,8 +432,8 @@ class SchoolPredictionQuickSetupYearLine(models.TransientModel):
     wizard_id = fields.Many2one('school.prediction.quick.setup.wizard', required=True, ondelete='cascade')
     year_index = fields.Integer(string='Year #', required=True)
     year_label = fields.Char(string='Academic Year', required=True)
-    student_count = fields.Integer(string='Students', required=True, default=600)
-    annual_fee_per_student = fields.Float(string='Annual Fee Per Student', required=True, default=12000.0)
+    student_count = fields.Integer(string='Students', required=True, default=0)
+    annual_fee_per_student = fields.Float(string='Annual Fee Per Student', required=True, default=0.0)
     teacher_count = fields.Integer(string='Teachers', required=True, default=0)
     principal_count = fields.Integer(string='Principals', required=True, default=0)
     assistant_principal_count = fields.Integer(string='Assistant Principals', required=True, default=0)
@@ -446,7 +527,7 @@ class SchoolPredictionQuickSetupSalaryLine(models.TransientModel):
     year_label = fields.Char(string='Academic Year', required=True)
     staff_role = fields.Selection(STAFF_ROLE_SELECTION, string='Staff Type', required=True)
     monthly_salary = fields.Float(string='Monthly Salary', required=True, default=0.0)
-    months_paid = fields.Integer(string='Months Paid', required=True, default=12)
+    months_paid = fields.Integer(string='Months Paid', required=True, default=0)
     bonus = fields.Float(string='Annual Bonus', default=0.0)
 
 
@@ -470,7 +551,7 @@ class SchoolPredictionQuickSetupYearSalaryLine(models.TransientModel):
     hr_monthly_salary = fields.Float(string='HR Salary', required=True, default=0.0)
     accountant_monthly_salary = fields.Float(string='Accountant Salary', required=True, default=0.0)
     finance_officer_monthly_salary = fields.Float(string='Finance Officer Salary', required=True, default=0.0)
-    months_paid = fields.Integer(string='Months Paid', required=True, default=12)
+    months_paid = fields.Integer(string='Months Paid', required=True, default=0)
     bonus = fields.Float(string='Annual Bonus', default=0.0)
 
     @api.model_create_multi
@@ -510,6 +591,99 @@ class SchoolPredictionQuickSetupYearSalaryLine(models.TransientModel):
         return super().write(cleaned_vals)
 
 
+class SchoolPredictionQuickSetupOneTimeExpenseLine(models.TransientModel):
+    _name = 'school.prediction.quick.setup.one.time.expense.line'
+    _description = 'Quick Prediction Setup One-Time Expense Input'
+    _order = 'year_index asc, id asc'
+
+    wizard_id = fields.Many2one('school.prediction.quick.setup.wizard', required=True, ondelete='cascade')
+    name = fields.Char(string='Expense Name', required=True, default='One-Time Expense')
+    category_seed_id = fields.Many2one('school.prediction.seed.expense.category', string='Expense Category')
+    seed_id = fields.Many2one('school.prediction.seed.expense', ondelete='set null')
+    school_category_id = fields.Many2one('school.expense.categories', ondelete='set null')
+    item_templates = fields.Json(default=list)
+    year_index = fields.Integer(string='Year #', required=True, default=1)
+    amount = fields.Float(string='One-Time Expense', required=True, default=0.0)
+
+    @api.onchange('category_seed_id')
+    def _onchange_category_seed(self):
+        for line in self.filtered('category_seed_id'):
+            line.name = line.category_seed_id.name
+
+    @api.constrains('year_index', 'wizard_id')
+    def _check_year_index_within_forecast(self):
+        for line in self:
+            if not line.wizard_id:
+                continue
+            max_year = max(int(line.wizard_id.forecast_years or 0), 0)
+            if line.year_index <= 0:
+                raise ValidationError('One-time expense year must be greater than zero.')
+            if max_year and line.year_index > max_year:
+                raise ValidationError('One-time expense year cannot be greater than Years Ahead to Predict.')
+
+
+class SchoolPredictionQuickSetupRepeatingExpenseLine(models.TransientModel):
+    _name = 'school.prediction.quick.setup.repeating.expense.line'
+    _description = 'Quick Prediction Setup Repeating Expense Input'
+    _order = 'id asc'
+
+    wizard_id = fields.Many2one('school.prediction.quick.setup.wizard', required=True, ondelete='cascade')
+    name = fields.Char(string='Expense Name', required=True, default='Recurring Expense')
+    category_seed_id = fields.Many2one('school.prediction.seed.expense.category', string='Expense Category')
+    seed_id = fields.Many2one('school.prediction.seed.expense', ondelete='set null')
+    school_category_id = fields.Many2one('school.expense.categories', ondelete='set null')
+    item_templates = fields.Json(default=list)
+    start_year_index = fields.Integer(string='Start Year #', required=True, default=1)
+    base_annual_amount = fields.Float(string='Base Annual Amount', required=True, default=0.0)
+    trend = fields.Selection([
+        ('stable', 'Stable'),
+        ('increase', 'Increase % per Year'),
+        ('decrease', 'Decrease % per Year'),
+        ('revenue_stable', '% of Revenue Before Tax - Stable'),
+        ('revenue_increase', '% of Revenue Before Tax - Increasing'),
+        ('revenue_decrease', '% of Revenue Before Tax - Decreasing'),
+        ('revenue_after_tax_increase', '% of Revenue After Tax - Increasing'),
+        ('revenue_after_tax_decrease', '% of Revenue After Tax - Decreasing'),
+        ('per_student', 'Student Count Based'),
+    ], string='Trend', required=True, default='stable')
+    annual_change_percent = fields.Float(string='Annual Change %', required=True, default=0.0)
+    input_mode = fields.Selection([('normal', 'Normal'), ('extreme', 'Extreme Efficiency')], default='normal', required=True)
+    cost_bucket = fields.Selection([('operating', 'Operating Expenses'), ('employee', 'Employee Costs')], required=True, default='operating')
+    amount_unit = fields.Char(string='Base Unit', compute='_compute_units')
+    change_unit = fields.Char(string='Change Unit', compute='_compute_units')
+
+    @api.onchange('category_seed_id')
+    def _onchange_category_seed(self):
+        for line in self.filtered('category_seed_id'):
+            line.name = line.category_seed_id.name
+            line.cost_bucket = 'operating'
+
+    @api.depends('trend')
+    def _compute_units(self):
+        for line in self:
+            line.amount_unit = 'Percent of revenue' if line.trend.startswith('revenue_') else ('Per student' if line.trend == 'per_student' else 'Annual amount')
+            line.change_unit = 'Not applicable' if line.trend in ('per_student', 'stable', 'revenue_stable') else ('Percentage points' if line.trend.startswith('revenue_') else '%')
+
+    @api.constrains('base_annual_amount', 'annual_change_percent', 'trend')
+    def _check_amounts(self):
+        for line in self:
+            if line.base_annual_amount < 0 or line.annual_change_percent < 0:
+                raise ValidationError('Recurring expense amounts and annual changes cannot be negative.')
+            if line.trend.startswith('revenue_') and line.base_annual_amount > 100:
+                raise ValidationError('A revenue-based expense percentage must be between 0 and 100.')
+
+    @api.constrains('start_year_index', 'wizard_id')
+    def _check_start_year_within_forecast(self):
+        for line in self:
+            if not line.wizard_id:
+                continue
+            max_year = max(int(line.wizard_id.forecast_years or 0), 0)
+            if line.start_year_index <= 0:
+                raise ValidationError('Repeating expense start year must be greater than zero.')
+            if max_year and line.start_year_index > max_year:
+                raise ValidationError('Repeating expense start year cannot be greater than Years Ahead to Predict.')
+
+
 class SchoolPredictionQuickSetupWizard(models.TransientModel):
     _name = 'school.prediction.quick.setup.wizard'
     _description = 'Quick Prediction Setup Wizard'
@@ -521,6 +695,11 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         default=lambda self: _extract_school_id_from_context(self.env),
     )
     forecast_years = fields.Integer(string='Years Ahead to Predict', required=True, default=3)
+    start_year = fields.Integer(string='Starting Year', required=True, default=lambda self: fields.Date.today().year)
+    extreme_efficiency = fields.Boolean(string='Extreme Efficiency', default=False)
+    extreme_expenses_initialized = fields.Boolean(default=False)
+    replace_existing_payroll = fields.Boolean(string='Replace Existing Payroll', default=False)
+    existing_payroll_warning = fields.Char(compute='_compute_existing_payroll_warning')
     income_tax_percent = fields.Float(string='Income Tax %', required=True, default=12.0)
     fee_increase_percent = fields.Float(string='Annual Fee Increase %', required=True, default=5.0)
     salary_increase_percent = fields.Float(string='Annual Salary Increase %', required=True, default=5.0)
@@ -529,18 +708,82 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
     teaching_load_hours = fields.Float(string='Teaching Load Per Teacher', required=True, default=24.0)
     assistant_principal_per_students = fields.Float(string='Assistant Principal: 1 per N Students', required=True, default=250.0)
     janitor_per_students = fields.Float(string='Janitor: 1 per N Students', required=True, default=100.0)
-    principal_fixed_count = fields.Integer(string='Principal Count', required=True, default=1)
-    it_fixed_count = fields.Integer(string='IT Count', required=True, default=2)
-    admission_officer_fixed_count = fields.Integer(string='Admission Officer Count', required=True, default=1)
-    front_desk_fixed_count = fields.Integer(string='Front Desk Count', required=True, default=1)
-    student_affairs_fixed_count = fields.Integer(string='Student Affairs Count', required=True, default=1)
-    nurse_fixed_count = fields.Integer(string='Nurse Count', required=True, default=1)
-    hr_fixed_count = fields.Integer(string='HR Count', required=True, default=1)
-    accountant_fixed_count = fields.Integer(string='Accountant Count', required=True, default=1)
-    finance_officer_fixed_count = fields.Integer(string='Finance Officer Count', required=True, default=1)
+    principal_fixed_count = fields.Integer(string='Principal Count', required=True, default=0)
+    it_fixed_count = fields.Integer(string='IT Count', required=True, default=0)
+    admission_officer_fixed_count = fields.Integer(string='Admission Officer Count', required=True, default=0)
+    front_desk_fixed_count = fields.Integer(string='Front Desk Count', required=True, default=0)
+    student_affairs_fixed_count = fields.Integer(string='Student Affairs Count', required=True, default=0)
+    nurse_fixed_count = fields.Integer(string='Nurse Count', required=True, default=0)
+    hr_fixed_count = fields.Integer(string='HR Count', required=True, default=0)
+    accountant_fixed_count = fields.Integer(string='Accountant Count', required=True, default=0)
+    finance_officer_fixed_count = fields.Integer(string='Finance Officer Count', required=True, default=0)
     line_ids = fields.One2many('school.prediction.quick.setup.year.line', 'wizard_id', string='Manual Year Inputs')
     salary_line_ids = fields.One2many('school.prediction.quick.setup.salary.line', 'wizard_id', string='Legacy Salary Inputs')
     year_salary_line_ids = fields.One2many('school.prediction.quick.setup.year.salary.line', 'wizard_id', string='Manual Salary Inputs')
+    one_time_expense_line_ids = fields.One2many(
+        'school.prediction.quick.setup.one.time.expense.line',
+        'wizard_id',
+        string='One-Time Expense Inputs',
+    )
+    repeating_expense_line_ids = fields.One2many(
+        'school.prediction.quick.setup.repeating.expense.line',
+        'wizard_id',
+        string='Repeating Expense Inputs',
+        domain=[('input_mode', '=', 'normal')],
+    )
+    extreme_expense_line_ids = fields.One2many(
+        'school.prediction.quick.setup.repeating.expense.line',
+        'wizard_id',
+        string='Extreme Efficiency Expenses',
+        domain=[('input_mode', '=', 'extreme')],
+    )
+
+    def _extreme_expense_commands(self):
+        return [fields.Command.create({
+            'name': name,
+            'input_mode': 'extreme',
+            'trend': trend,
+            'base_annual_amount': amount,
+            'annual_change_percent': change,
+            'cost_bucket': 'employee' if name == 'Salaries' else 'operating',
+        }) for name, trend, amount, change in (
+            ('Salaries', 'revenue_decrease', 50.0, 3.0),
+            ('Operational Expenses', 'revenue_decrease', 30.0, 3.0),
+            ('Digital Subscriptions', 'per_student', 0.0, 0.0),
+        )]
+
+    @api.onchange('extreme_efficiency', 'school_id', 'forecast_years', 'start_year')
+    def _onchange_extreme_efficiency(self):
+        for wizard in self:
+            wizard.replace_existing_payroll = False
+            if wizard.extreme_efficiency and not wizard.extreme_expenses_initialized:
+                if not wizard.extreme_expense_line_ids:
+                    wizard.extreme_expense_line_ids = wizard._extreme_expense_commands()
+                wizard.extreme_expenses_initialized = True
+
+    def _active_repeating_expenses(self):
+        self.ensure_one()
+        return self.extreme_expense_line_ids if self.extreme_efficiency else self.repeating_expense_line_ids
+
+    def _existing_forecast_years(self):
+        self.ensure_one()
+        return self.env['school.academic.years'].search([
+            ('school_id', '=', self.school_id.id),
+            ('dataset_type', '=', 'forecast'),
+            ('academic_year_name', 'in', [self._academic_year_label(index) for index in range(max(int(self.forecast_years or 0), 1))]),
+        ], order='academic_year_name, id', limit=max(int(self.forecast_years or 0), 1))
+
+    @api.depends('school_id', 'forecast_years', 'extreme_efficiency', 'start_year')
+    def _compute_existing_payroll_warning(self):
+        for wizard in self:
+            years = wizard._existing_forecast_years() if wizard.school_id and wizard.extreme_efficiency else self.env['school.academic.years']
+            payroll = self.env['school.employment.salaries'].search([('academic_year_id', 'in', years.ids)])
+            overrides = self.env['school.staffing.overrides'].search([('academic_year_id', 'in', years.ids)])
+            wizard.existing_payroll_warning = (
+                f'Generating will remove {len(payroll)} payroll records and {len(overrides)} staffing overrides for {wizard.school_id.name}: '
+                + ', '.join(years.mapped('academic_year_name'))
+                + '. They will be replaced by the active payroll rules.'
+            ) if payroll or overrides else False
 
     def _staff_role_specs(self):
         return STAFF_ROLE_SELECTION
@@ -593,6 +836,10 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
+            if vals.get('extreme_efficiency') and not vals.get('extreme_expenses_initialized'):
+                if not vals.get('extreme_expense_line_ids'):
+                    vals['extreme_expense_line_ids'] = self._extreme_expense_commands()
+                vals['extreme_expenses_initialized'] = True
             fee_increase_percent = vals.get('fee_increase_percent')
             salary_increase_percent = vals.get('salary_increase_percent')
             line_values = vals.get('line_ids') or []
@@ -629,7 +876,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         return super().create(vals_list)
 
     def _academic_year_label(self, year_index):
-        start_year = fields.Date.today().year + year_index
+        start_year = (self.start_year if len(self) == 1 else self.env.context.get('default_start_year', fields.Date.today().year)) + year_index
         return f'{start_year}-{start_year + 1}'
 
     def _growth_factor(self, percent_value):
@@ -638,16 +885,13 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
 
     def _build_default_line_commands(self, forecast_years, fee_increase_percent=None):
         commands = []
-        fee_growth = self._growth_factor(
-            self.fee_increase_percent if fee_increase_percent is None else fee_increase_percent
-        )
         for year_index in range(max(forecast_years, 1)):
-            staff_values = self._build_staff_values_from_students(600)
+            staff_values = self._build_staff_values_from_students(0)
             commands.append(fields.Command.create({
                 'year_index': year_index + 1,
                 'year_label': self._academic_year_label(year_index),
-                'student_count': 600,
-                'annual_fee_per_student': 12000.0 * (fee_growth ** year_index),
+                'student_count': 0,
+                'annual_fee_per_student': 0.0,
                 **staff_values,
             }))
         return commands
@@ -672,8 +916,11 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             return
 
         role_field_map = self._salary_role_field_map()
+        subject_count_floor = self._subject_count()
         base_row = lines[0]
         growth = self._growth_factor(self.salary_increase_percent)
+        base_months_paid = max(int(base_row.months_paid or 0), 0)
+        base_bonus = float(base_row.bonus or 0.0)
         base_values = {
             field_name: float(getattr(base_row, field_name) or 0.0)
             for field_name in role_field_map.values()
@@ -685,6 +932,10 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             updates = {}
             for field_name, base_value in base_values.items():
                 updates[field_name] = base_value * (growth ** index)
+            if base_months_paid > 0 and int(line.months_paid or 0) <= 0:
+                updates['months_paid'] = base_months_paid
+            if base_bonus > 0 and float(line.bonus or 0.0) == 0.0:
+                updates['bonus'] = base_bonus
             line.update(updates)
 
     def _default_monthly_salary_from_line(self, line_dict):
@@ -750,7 +1001,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             raw_fee = values.get('annual_fee_per_student')
             if raw_fee in (False, None):
                 if last_fee_value is None:
-                    values['annual_fee_per_student'] = 12000.0
+                    values['annual_fee_per_student'] = 0.0
                 else:
                     values['annual_fee_per_student'] = last_fee_value * fee_growth
             last_fee_value = float(values.get('annual_fee_per_student') or 0.0)
@@ -789,7 +1040,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     'year_label': year_label,
                     'staff_role': staff_role,
                     'monthly_salary': existing.monthly_salary if existing else default_monthly,
-                    'months_paid': existing.months_paid if existing else 12,
+                    'months_paid': existing.months_paid if existing else 0,
                     'bonus': existing.bonus if existing else 0.0,
                 }))
         return commands
@@ -822,7 +1073,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             values = {
                 'year_index': year_index,
                 'year_label': year_label,
-                'months_paid': existing.months_paid if existing else 12,
+                'months_paid': existing.months_paid if existing else 0,
                 'bonus': existing.bonus if existing else 0.0,
             }
             for role_key, field_name in role_field_map.items():
@@ -905,7 +1156,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             wizard.subject_hours_per_class = wizard._subject_hours_per_class_from_subjects()
             wizard._autofill_staff_counts_for_lines()
 
-    @api.onchange('forecast_years')
+    @api.onchange('forecast_years', 'start_year')
     def _onchange_forecast_years(self):
         for wizard in self:
             target_years = max(int(wizard.forecast_years or 1), 1)
@@ -935,8 +1186,8 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     })
                 else:
                     source = generated_values[-1] if generated_values else {
-                        'student_count': 600,
-                        'annual_fee_per_student': 12000.0,
+                        'student_count': 0,
+                        'annual_fee_per_student': 0.0,
                     }
                     source_staff_values = wizard._build_staff_values_from_students(source['student_count'])
                     generated_values.append({
@@ -996,6 +1247,191 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         for wizard in self:
             wizard._apply_salary_growth_to_lines()
 
+    def action_load_demo_data(self):
+        self.ensure_one()
+
+        school = self.school_id or self.env['school.schools'].search([], order='id asc', limit=1)
+        if not school:
+            raise ValidationError('Please create a school first, then load demo data.')
+
+        demo_year_lines = [
+            {
+                'year_index': 1,
+                'year_label': self._academic_year_label(0),
+                'student_count': 100,
+                'annual_fee_per_student': 120000.0,
+                'teacher_count': 7,
+                'principal_count': 1,
+                'assistant_principal_count': 1,
+                'it_count': 2,
+                'janitor_count': 1,
+                'admission_officer_count': 1,
+                'front_desk_count': 1,
+                'student_affairs_count': 1,
+                'nurse_count': 1,
+                'hr_count': 1,
+                'accountant_count': 1,
+                'finance_officer_count': 1,
+            },
+            {
+                'year_index': 2,
+                'year_label': self._academic_year_label(1),
+                'student_count': 200,
+                'annual_fee_per_student': 132000.0,
+                'teacher_count': 12,
+                'principal_count': 1,
+                'assistant_principal_count': 1,
+                'it_count': 2,
+                'janitor_count': 2,
+                'admission_officer_count': 1,
+                'front_desk_count': 1,
+                'student_affairs_count': 1,
+                'nurse_count': 1,
+                'hr_count': 1,
+                'accountant_count': 1,
+                'finance_officer_count': 1,
+            },
+            {
+                'year_index': 3,
+                'year_label': self._academic_year_label(2),
+                'student_count': 300,
+                'annual_fee_per_student': 145200.0,
+                'teacher_count': 18,
+                'principal_count': 1,
+                'assistant_principal_count': 2,
+                'it_count': 2,
+                'janitor_count': 3,
+                'admission_officer_count': 1,
+                'front_desk_count': 1,
+                'student_affairs_count': 1,
+                'nurse_count': 1,
+                'hr_count': 1,
+                'accountant_count': 1,
+                'finance_officer_count': 1,
+            },
+        ]
+
+        demo_salary_lines = [
+            {
+                'year_index': 1,
+                'year_label': self._academic_year_label(0),
+                'teacher_monthly_salary': 25000.0,
+                'principal_monthly_salary': 100000.0,
+                'assistant_principal_monthly_salary': 70000.0,
+                'it_monthly_salary': 30000.0,
+                'janitor_monthly_salary': 15000.0,
+                'admission_officer_monthly_salary': 17000.0,
+                'front_desk_monthly_salary': 17000.0,
+                'student_affairs_monthly_salary': 20000.0,
+                'nurse_monthly_salary': 20000.0,
+                'hr_monthly_salary': 20000.0,
+                'accountant_monthly_salary': 20000.0,
+                'finance_officer_monthly_salary': 0.0,
+                'months_paid': 12,
+                'bonus': 0.0,
+            },
+            {
+                'year_index': 2,
+                'year_label': self._academic_year_label(1),
+                'teacher_monthly_salary': 27500.0,
+                'principal_monthly_salary': 110000.0,
+                'assistant_principal_monthly_salary': 77000.0,
+                'it_monthly_salary': 33000.0,
+                'janitor_monthly_salary': 16500.0,
+                'admission_officer_monthly_salary': 18700.0,
+                'front_desk_monthly_salary': 18700.0,
+                'student_affairs_monthly_salary': 22000.0,
+                'nurse_monthly_salary': 22000.0,
+                'hr_monthly_salary': 22000.0,
+                'accountant_monthly_salary': 22000.0,
+                'finance_officer_monthly_salary': 0.0,
+                'months_paid': 12,
+                'bonus': 0.0,
+            },
+            {
+                'year_index': 3,
+                'year_label': self._academic_year_label(2),
+                'teacher_monthly_salary': 30250.0,
+                'principal_monthly_salary': 121000.0,
+                'assistant_principal_monthly_salary': 84700.0,
+                'it_monthly_salary': 36300.0,
+                'janitor_monthly_salary': 18150.0,
+                'admission_officer_monthly_salary': 20570.0,
+                'front_desk_monthly_salary': 20570.0,
+                'student_affairs_monthly_salary': 24200.0,
+                'nurse_monthly_salary': 24200.0,
+                'hr_monthly_salary': 24200.0,
+                'accountant_monthly_salary': 24200.0,
+                'finance_officer_monthly_salary': 0.0,
+                'months_paid': 12,
+                'bonus': 0.0,
+            },
+        ]
+
+        demo_values = {
+            'school_id': school.id,
+            'forecast_years': 3,
+            'income_tax_percent': 22.5,
+            'fee_increase_percent': 10.0,
+            'salary_increase_percent': 10.0,
+            'max_students_per_class_input': 25,
+            'teaching_load_hours': 24.0,
+            'assistant_principal_per_students': 250.0,
+            'janitor_per_students': 100.0,
+            'principal_fixed_count': 1,
+            'it_fixed_count': 2,
+            'admission_officer_fixed_count': 1,
+            'front_desk_fixed_count': 1,
+            'student_affairs_fixed_count': 1,
+            'nurse_fixed_count': 1,
+            'hr_fixed_count': 1,
+            'accountant_fixed_count': 1,
+            'finance_officer_fixed_count': 1,
+            'line_ids': [fields.Command.clear()] + [fields.Command.create(values) for values in demo_year_lines],
+            'year_salary_line_ids': [fields.Command.clear()] + [fields.Command.create(values) for values in demo_salary_lines],
+            'one_time_expense_line_ids': [fields.Command.clear()],
+            'repeating_expense_line_ids': [
+                fields.Command.clear(),
+                fields.Command.create({
+                    'name': 'digital subscriptions',
+                    'start_year_index': 1,
+                    'base_annual_amount': 200000.0,
+                    'trend': 'increase',
+                    'annual_change_percent': 5.0,
+                }),
+                fields.Command.create({
+                    'name': 'accreditation',
+                    'start_year_index': 1,
+                    'base_annual_amount': 300000.0,
+                    'trend': 'stable',
+                    'annual_change_percent': 0.0,
+                }),
+            ],
+        }
+        if self.extreme_efficiency:
+            for field_name in (
+                'salary_increase_percent', 'max_students_per_class_input', 'teaching_load_hours',
+                'assistant_principal_per_students', 'janitor_per_students', 'principal_fixed_count',
+                'it_fixed_count', 'admission_officer_fixed_count', 'front_desk_fixed_count',
+                'student_affairs_fixed_count', 'nurse_fixed_count', 'hr_fixed_count',
+                'accountant_fixed_count', 'finance_officer_fixed_count',
+                'year_salary_line_ids', 'repeating_expense_line_ids',
+            ):
+                demo_values.pop(field_name, None)
+            demo_values['extreme_expense_line_ids'] = [fields.Command.clear()] + self._extreme_expense_commands()
+            demo_values['extreme_expenses_initialized'] = True
+        demo_values['replace_existing_payroll'] = False
+        self.update(demo_values)
+        self.subject_hours_per_class = self._subject_hours_per_class_from_subjects(school=school)
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Quick Prediction Setup',
+            'res_model': 'school.prediction.quick.setup.wizard',
+            'view_mode': 'form',
+            'res_id': self.id,
+            'target': 'new',
+        }
+
     def _upsert(self, model_name, domain, values):
         record = self.env[model_name].search(domain, limit=1)
         if record:
@@ -1012,11 +1448,13 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         normalized_percentage = max(float(self.income_tax_percent or 0.0), 0.0) / 100.0
         tax_name = f'Income Tax {float(self.income_tax_percent or 0.0):g}%'
         tax_rule = self.env['school.tax.rules'].search([
+            ('school_id', '=', self.school_id.id),
             ('name', '=', tax_name),
             ('percentage', '=', normalized_percentage),
         ], limit=1)
         if not tax_rule:
             tax_rule = self.env['school.tax.rules'].create({
+                'school_id': self.school_id.id,
                 'name': tax_name,
                 'percentage': normalized_percentage,
             })
@@ -1066,24 +1504,6 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
     def _ensure_subjects(self):
         self.ensure_one()
         school = self.school_id
-        curriculum = self.env['school.curriculum.preset'].search([], order='display_order asc, id asc', limit=1)
-        if not curriculum:
-            return
-
-        presets = self.env['school.subject.preset'].search([
-            ('curriculum_id', '=', curriculum.id),
-        ], order='display_order asc, id asc')
-        for preset in presets:
-            subject = self.env['school.subjects'].search([
-                ('school_id', '=', school.id),
-                ('name', '=ilike', preset.name),
-            ], limit=1)
-            if not subject:
-                self.env['school.subjects'].create({
-                    'school_id': school.id,
-                    'name': preset.name,
-                    'display_order': preset.display_order,
-                })
         return self.env['school.subjects'].search([
             ('school_id', '=', school.id),
         ], order='display_order asc, id asc')
@@ -1108,7 +1528,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     },
                 )
 
-    def _ensure_fee_types(self, tax_rule):
+    def _ensure_fee_types(self):
         self.ensure_one()
         school = self.school_id
         fee_specs = [
@@ -1127,13 +1547,6 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     'school_id': school.id,
                     'name': name,
                     'display_order': display_order,
-                    'is_taxable': True,
-                    'tax_rule_id': tax_rule.id,
-                })
-            else:
-                fee_type.write({
-                    'is_taxable': True,
-                    'tax_rule_id': tax_rule.id,
                 })
             fee_types.append(fee_type)
         return fee_types
@@ -1141,29 +1554,11 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
     def _ensure_operating_models(self):
         self.ensure_one()
         school = self.school_id
-
-        operating_category = self.env['school.expense.categories'].search([
-            ('school_id', '=', school.id),
-            ('name', '=ilike', 'Operating Costs'),
-        ], limit=1)
-        if not operating_category:
-            operating_category = self.env['school.expense.categories'].create({
-                'school_id': school.id,
-                'name': 'Operating Costs',
-                'display_order': 10,
-            })
-
-        expense_item = self.env['school.expense.items'].search([
-            ('school_id', '=', school.id),
-            ('name', '=ilike', 'General Operations'),
-        ], limit=1)
-        if not expense_item:
-            expense_item = self.env['school.expense.items'].create({
-                'school_id': school.id,
-                'expense_category_id': operating_category.id,
-                'name': 'General Operations',
-                'display_order': 10,
-            })
+        configuration = self.env.ref('school_planning.prediction_seed_configuration')
+        if hasattr(configuration, '_ensure_staffing_seeds'):
+            configuration._ensure_staffing_seeds()
+        seed_rows = configuration.staffing_seed_ids.filtered(lambda row: row.title)
+        seed_by_code = {row.code: row for row in seed_rows}
 
         teaching_staff_category = self.env['school.staff.categories'].search([
             ('school_id', '=', school.id),
@@ -1200,6 +1595,12 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             ('hr', 'HR', support_staff_category, 100),
             ('accountant', 'Accountant', support_staff_category, 110),
             ('finance_officer', 'Finance Officer', support_staff_category, 120),
+        ] + [
+            (seed.code, seed.title, support_staff_category, seed.display_order)
+            for seed in seed_rows.filtered(
+                lambda row: row.code not in {'teacher', 'principal', 'assistant_principal', 'it', 'janitor',
+                    'admission_officer', 'front_desk', 'student_affairs', 'nurse', 'hr', 'accountant', 'finance_officer'}
+            )
         ]
 
         positions = {}
@@ -1224,19 +1625,45 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             teacher_parameter = self.teaching_load_hours / self.subject_hours_per_class
         teacher_parameter = max(float(teacher_parameter), 0.01)
 
+        def _seed_method_and_value(code, default_method, default_value, per_student_fallback=1.0):
+            seed = seed_by_code.get(code)
+            method = seed.calculation_method if seed else default_method
+            value = float(seed.parameter_value if seed else default_value or 0.0)
+            if method == 'per_student':
+                return method, self._safe_divisor(value, per_student_fallback)
+            return method, max(value, 0.0)
+
+        principal_method, principal_value = _seed_method_and_value('principal', 'fixed', self.principal_fixed_count)
+        assistant_method, assistant_value = _seed_method_and_value('assistant_principal', 'per_student', self.assistant_principal_per_students, 250.0)
+        it_method, it_value = _seed_method_and_value('it', 'fixed', self.it_fixed_count)
+        janitor_method, janitor_value = _seed_method_and_value('janitor', 'per_student', self.janitor_per_students, 100.0)
+        admission_method, admission_value = _seed_method_and_value('admission_officer', 'fixed', self.admission_officer_fixed_count)
+        front_method, front_value = _seed_method_and_value('front_desk', 'fixed', self.front_desk_fixed_count)
+        affairs_method, affairs_value = _seed_method_and_value('student_affairs', 'fixed', self.student_affairs_fixed_count)
+        nurse_method, nurse_value = _seed_method_and_value('nurse', 'fixed', self.nurse_fixed_count)
+        hr_method, hr_value = _seed_method_and_value('hr', 'fixed', self.hr_fixed_count)
+        accountant_method, accountant_value = _seed_method_and_value('accountant', 'fixed', self.accountant_fixed_count)
+        finance_method, finance_value = _seed_method_and_value('finance_officer', 'fixed', self.finance_officer_fixed_count)
+
         staffing_specs = [
             ('teacher', 'per_class', teacher_parameter, 10),
-            ('principal', 'fixed', max(float(self.principal_fixed_count or 0), 0.0), 20),
-            ('assistant_principal', 'per_student', self._safe_divisor(self.assistant_principal_per_students, 250.0), 30),
-            ('it', 'fixed', max(float(self.it_fixed_count or 0), 0.0), 40),
-            ('janitor', 'per_student', self._safe_divisor(self.janitor_per_students, 100.0), 50),
-            ('admission_officer', 'fixed', max(float(self.admission_officer_fixed_count or 0), 0.0), 60),
-            ('front_desk', 'fixed', max(float(self.front_desk_fixed_count or 0), 0.0), 70),
-            ('student_affairs', 'fixed', max(float(self.student_affairs_fixed_count or 0), 0.0), 80),
-            ('nurse', 'fixed', max(float(self.nurse_fixed_count or 0), 0.0), 90),
-            ('hr', 'fixed', max(float(self.hr_fixed_count or 0), 0.0), 100),
-            ('accountant', 'fixed', max(float(self.accountant_fixed_count or 0), 0.0), 110),
-            ('finance_officer', 'fixed', max(float(self.finance_officer_fixed_count or 0), 0.0), 120),
+            ('principal', principal_method, principal_value, 20),
+            ('assistant_principal', assistant_method, assistant_value, 30),
+            ('it', it_method, it_value, 40),
+            ('janitor', janitor_method, janitor_value, 50),
+            ('admission_officer', admission_method, admission_value, 60),
+            ('front_desk', front_method, front_value, 70),
+            ('student_affairs', affairs_method, affairs_value, 80),
+            ('nurse', nurse_method, nurse_value, 90),
+            ('hr', hr_method, hr_value, 100),
+            ('accountant', accountant_method, accountant_value, 110),
+            ('finance_officer', finance_method, finance_value, 120),
+        ] + [
+            (seed.code, seed.calculation_method, max(float(seed.parameter_value or 0.0), 0.0), seed.display_order)
+            for seed in seed_rows.filtered(
+                lambda row: row.code not in {'teacher', 'principal', 'assistant_principal', 'it', 'janitor',
+                    'admission_officer', 'front_desk', 'student_affairs', 'nurse', 'hr', 'accountant', 'finance_officer'}
+            )
         ]
 
         for key, method, parameter_value, display_order in staffing_specs:
@@ -1256,7 +1683,90 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                 staffing_rule.write(values)
             else:
                 self.env['school.staffing.rules'].create(values)
-        return expense_item, positions
+        return positions
+
+    def _ensure_manual_expense_category(self):
+        self.ensure_one()
+        school = self.school_id
+        category = self.env['school.expense.categories'].search([
+            ('school_id', '=', school.id),
+            ('name', '=ilike', 'Manual Expenses'),
+        ], limit=1)
+        if not category:
+            category = self.env['school.expense.categories'].create({
+                'school_id': school.id,
+                'name': 'Manual Expenses',
+                'display_order': 20,
+            })
+        return category
+
+    def _ensure_manual_expense_item(self, category, name, display_order=10):
+        self.ensure_one()
+        school = self.school_id
+        item = self.env['school.expense.items'].search([
+            ('school_id', '=', school.id),
+            ('name', '=ilike', name),
+        ], limit=1)
+        if not item:
+            item = self.env['school.expense.items'].create({
+                'school_id': school.id,
+                'expense_category_id': category.id,
+                'name': name,
+                'display_order': display_order,
+            })
+        return item
+
+    def _ensure_prediction_expense_category(self, line, display_order):
+        self.ensure_one()
+        name = line.name.strip()
+        bucket = line.cost_bucket if 'cost_bucket' in line._fields else 'operating'
+        category = line.school_category_id
+        if category and (category.school_id != self.school_id or category.name != name or category.cost_bucket != bucket):
+            category = self.env['school.expense.categories']
+        if not category:
+            category = self.env['school.expense.categories'].search([
+                ('school_id', '=', self.school_id.id), ('name', '=ilike', name), ('cost_bucket', '=', bucket),
+            ], limit=1)
+        if not category:
+            category = self.env['school.expense.categories'].create({
+                'school_id': self.school_id.id, 'name': name, 'display_order': display_order,
+                'prediction_seed_id': line.seed_id.id, 'cost_bucket': bucket,
+            })
+        line.school_category_id = category
+        for item_seed in line.item_templates or []:
+            if not category.expense_item_ids.filtered(lambda item: item.name.strip().casefold() == item_seed['name'].strip().casefold()):
+                self.env['school.expense.items'].create({'school_id': self.school_id.id,
+                    'expense_category_id': category.id, 'name': item_seed['name'], 'display_order': item_seed['display_order']})
+        return category
+
+    def _compute_repeating_expense_amount(self, rule_line, year_no, gross_revenue=0.0, student_count=0, net_revenue=0.0):
+        base_amount = max(float(rule_line.base_annual_amount or 0.0), 0.0)
+        start_year = max(int(rule_line.start_year_index or 1), 1)
+        if year_no < start_year:
+            return 0.0
+
+        periods = year_no - start_year
+        if rule_line.trend == 'per_student':
+            return base_amount * max(int(student_count), 0)
+        if rule_line.trend.startswith('revenue_'):
+            change = max(float(rule_line.annual_change_percent or 0.0), 0.0) * periods
+            percentage = base_amount
+            if rule_line.trend.endswith('_increase'):
+                percentage += change
+            elif rule_line.trend.endswith('_decrease'):
+                percentage -= change
+            revenue = net_revenue if rule_line.trend.startswith('revenue_after_tax_') else gross_revenue
+            return max(float(revenue), 0.0) * min(max(percentage, 0.0), 100.0) / 100.0
+        if periods <= 0 or rule_line.trend == 'stable':
+            return base_amount
+
+        rate = max(float(rule_line.annual_change_percent or 0.0), 0.0) / 100.0
+        if rule_line.trend == 'increase':
+            return base_amount * ((1.0 + rate) ** periods)
+        if rule_line.trend == 'decrease':
+            factor = max(1.0 - rate, 0.0)
+            return base_amount * (factor ** periods)
+        return base_amount
 
     def _line_staff_count_map(self, line):
         return {
@@ -1274,26 +1784,41 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             'finance_officer': max(int(line.finance_officer_count or 0), 0),
         }
 
+    def _seed_staff_count_map(self, student_count):
+        self.ensure_one()
+        configuration = self.env.ref('school_planning.prediction_seed_configuration')
+        if not hasattr(configuration, '_ensure_staffing_seeds'):
+            return {}
+        configuration._ensure_staffing_seeds()
+        counts = {}
+        reserved = {'teacher', 'principal', 'assistant_principal', 'it', 'janitor', 'admission_officer',
+                    'front_desk', 'student_affairs', 'nurse', 'hr', 'accountant', 'finance_officer'}
+        for seed in configuration.staffing_seed_ids.filtered(lambda row: row.code not in reserved and row.title):
+            if seed.calculation_method == 'per_student':
+                divisor = max(float(seed.parameter_value or 0.0), 1.0)
+                counts[seed.code] = math.ceil(max(int(student_count or 0), 0) / divisor) if student_count > 0 else 0
+            else:
+                counts[seed.code] = max(int(seed.parameter_value or 0), 0)
+        return counts
+
     def _ensure_academic_years(self, forecast_years=3):
         self.ensure_one()
         school = self.school_id
-        existing_years = self.env['school.academic.years'].search([
-            ('school_id', '=', school.id),
-        ], order='academic_year_name asc, id asc')
-        if len(existing_years) >= forecast_years:
-            return existing_years[:forecast_years]
-
-        current_year = fields.Date.today().year
-        while len(existing_years) < forecast_years:
-            year_start = current_year + len(existing_years)
+        if not 1900 <= self.start_year <= 2200:
+            raise ValidationError('Starting Year must be between 1900 and 2200.')
+        existing_years = self.env['school.academic.years']
+        for index in range(forecast_years):
+            year_start = self.start_year + index
             label = f'{year_start}-{year_start + 1}'
             year_record = self.env['school.academic.years'].search([
                 ('school_id', '=', school.id),
+                ('dataset_type', '=', 'forecast'),
                 ('academic_year_name', '=', label),
             ], limit=1)
             if not year_record:
                 year_record = self.env['school.academic.years'].create({
                     'school_id': school.id,
+                    'dataset_type': 'forecast',
                     'academic_year_name': label,
                     'start_date': f'{year_start}-09-01',
                     'end_date': f'{year_start + 1}-06-30',
@@ -1318,9 +1843,9 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             raise ValidationError('Years ahead to predict must be greater than zero.')
         if self.income_tax_percent < 0:
             raise ValidationError('Income tax percentage cannot be negative.')
-        if self.max_students_per_class_input <= 0:
+        if not self.extreme_efficiency and self.max_students_per_class_input <= 0:
             raise ValidationError('Max students per class must be greater than zero.')
-        if self.teaching_load_hours <= 0:
+        if not self.extreme_efficiency and self.teaching_load_hours <= 0:
             raise ValidationError('Teaching load per teacher must be greater than zero.')
 
         manual_lines = self.line_ids.sorted('year_index')
@@ -1329,7 +1854,8 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
 
         selected_lines = manual_lines[:self.forecast_years]
         salary_lines = self.salary_line_ids
-        year_salary_lines = self.year_salary_line_ids
+        year_salary_lines = self.year_salary_line_ids if not self.extreme_efficiency else self.env['school.prediction.quick.setup.year.salary.line']
+        repeating_lines = self._active_repeating_expenses()
         for line in selected_lines:
             if line.student_count <= 0:
                 raise ValidationError('Each year must have student count greater than zero.')
@@ -1345,6 +1871,48 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                 if getattr(line, field_name) < 0:
                     raise ValidationError('Monthly salary cannot be negative.')
 
+        for line in self.one_time_expense_line_ids:
+            if line.year_index <= 0:
+                raise ValidationError('One-time expense year must be greater than zero.')
+            if line.year_index > self.forecast_years:
+                raise ValidationError('One-time expense year cannot be greater than forecast years.')
+            if line.amount < 0:
+                raise ValidationError('One-time expense cannot be negative.')
+
+        for line in repeating_lines:
+            if line.start_year_index <= 0:
+                raise ValidationError('Repeating expense start year must be greater than zero.')
+            if line.start_year_index > self.forecast_years:
+                raise ValidationError('Repeating expense start year cannot be greater than forecast years.')
+            if line.base_annual_amount < 0:
+                raise ValidationError('Repeating expense base annual amount cannot be negative.')
+            if line.annual_change_percent < 0:
+                raise ValidationError('Repeating expense annual change cannot be negative.')
+
+        existing_years = self._existing_forecast_years()
+        if any(year.baseline_locked for year in existing_years):
+            raise ValidationError('This period includes an approved forecast. Choose an unfrozen reporting period; Actual data remains separate.')
+        payroll = self.env['school.employment.salaries'].search([('academic_year_id', 'in', existing_years.ids)])
+        overrides = self.env['school.staffing.overrides'].search([('academic_year_id', 'in', existing_years.ids)])
+        if self.extreme_efficiency and (payroll or overrides) and not self.replace_existing_payroll:
+            raise ValidationError('Review and confirm Replace Existing Payroll before generating Extreme Efficiency for these years.')
+        names = [(line.name or '').strip().casefold() for line in repeating_lines]
+        one_time_names = {(line.name or '').strip().casefold() for line in self.one_time_expense_line_ids}
+        if len(names) != len(set(names)):
+            raise ValidationError('Recurring expense category names must be unique.')
+        for line in repeating_lines:
+            if line.trend.startswith('revenue_') and line.base_annual_amount > 100:
+                raise ValidationError('Revenue expense percentages must be between 0 and 100.')
+        for name in set(names) | one_time_names:
+            manual_values = self.env['school.expense.values'].search([
+                ('academic_year_id', 'in', existing_years.ids),
+                ('prediction_input_mode', '=', False),
+                '|', '&', ('expense_item_id', '=', False), ('expense_category_id.name', '=ilike', name),
+                ('expense_item_id.name', '=ilike', name),
+            ], limit=1)
+            if manual_values:
+                raise ValidationError(f'An existing manual expense named "{name}" would be overwritten. Rename the new rule or review the existing expense first.')
+
         scenario = self._default_scenario()
         if not scenario:
             raise ValidationError('No prediction scenario preset found. Please load prediction preset data first.')
@@ -1358,12 +1926,21 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             raise ValidationError('Please configure at least one subject from Subject Configuration first.')
 
         self.subject_hours_per_class = self._subject_hours_per_class_from_subjects()
-        tax_rule = self._ensure_income_tax_rule()
-        fee_types = self._ensure_fee_types(tax_rule)
-        expense_item, staff_positions = self._ensure_operating_models()
+        fee_types = self._ensure_fee_types()
+        staff_positions = self._ensure_operating_models() if not self.extreme_efficiency else {}
         years = self._ensure_academic_years(forecast_years=self.forecast_years)
+        prediction_tax_percent = min(max(float(self.income_tax_percent or 0.0), 0.0), 100.0)
+        years.write({'prediction_income_tax_percent': prediction_tax_percent})
 
-        levels.write({'max_students_per_class_override': self.max_students_per_class_input})
+        if not self.extreme_efficiency:
+            levels.write({'max_students_per_class_override': self.max_students_per_class_input})
+        self.env['school.expense.values'].search([
+            ('academic_year_id', 'in', years.ids),
+            ('prediction_input_mode', '!=', False),
+        ]).unlink()
+        if self.extreme_efficiency:
+            payroll.unlink()
+            overrides.unlink()
 
         shares = [scenario.tuition_share, scenario.admission_share, scenario.activity_share]
         share_total = sum(shares)
@@ -1372,21 +1949,41 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             share_total = 1.0
         shares = [share / share_total for share in shares]
 
-        operating_ratio = (scenario.operating_expense_ratio or 0.0) / 100.0
         salary_ratio = (scenario.salary_ratio or 0.0) / 100.0
         salary_line_map = {
             line.year_index: line
             for line in year_salary_lines
         }
         role_field_map = self._salary_role_field_map()
+        subject_count_floor = self._subject_count()
+        one_time_by_name_and_year = {}
+        one_time_line_map = {}
+        for index, line in enumerate(self.one_time_expense_line_ids.sorted('id'), start=1):
+            item_name = (line.name or '').strip() or f'One-Time Expense {index}'
+            year_no = int(line.year_index or 0)
+            amount = max(float(line.amount or 0.0), 0.0)
+            year_amount_map = one_time_by_name_and_year.setdefault(item_name, {})
+            year_amount_map[year_no] = year_amount_map.get(year_no, 0.0) + amount
+            one_time_line_map[item_name] = line
+
+        one_time_item_map = {}
+        for index, item_name in enumerate(one_time_by_name_and_year.keys(), start=1):
+            one_time_item_map[item_name] = self._ensure_prediction_expense_category(one_time_line_map[item_name], 10 + index)
+
+        repeating_item_map = {}
+        repeating_display_order_base = 10 + len(one_time_item_map)
+        for index, line in enumerate(repeating_lines.sorted('id'), start=1):
+            repeating_item_map[line.id] = self._ensure_prediction_expense_category(line, repeating_display_order_base + index)
 
         for year_index, academic_year in enumerate(years):
+            year_no = year_index + 1
             year_input = selected_lines[year_index]
             total_students = max(int(year_input.student_count), 1)
             annual_fee_per_student = float(year_input.annual_fee_per_student)
             students_by_level = self._distribute_students(levels, total_students)
 
-            self._ensure_subject_distribution(academic_year, levels, subjects)
+            if not self.extreme_efficiency:
+                self._ensure_subject_distribution(academic_year, levels, subjects)
 
             for level in levels:
                 student_count = students_by_level.get(level.id, 0)
@@ -1420,23 +2017,59 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     )
 
             gross_revenue = total_students * annual_fee_per_student
-            operating_budget = gross_revenue * operating_ratio
+            net_revenue = gross_revenue * (1.0 - (prediction_tax_percent / 100.0))
             salary_budget = gross_revenue * salary_ratio
 
-            self._upsert(
-                'school.expense.values',
-                [
-                    ('academic_year_id', '=', academic_year.id),
-                    ('expense_item_id', '=', expense_item.id),
-                ],
-                {
-                    'academic_year_id': academic_year.id,
-                    'expense_item_id': expense_item.id,
-                    'amount': operating_budget,
-                },
-            )
+            for item_name, one_time_item in one_time_item_map.items():
+                amount = one_time_by_name_and_year[item_name].get(year_no, 0.0)
+                self._upsert(
+                    'school.expense.values',
+                    [
+                        ('academic_year_id', '=', academic_year.id),
+                        ('expense_category_id', '=', one_time_item.id), ('expense_item_id', '=', False),
+                    ],
+                    {
+                        'academic_year_id': academic_year.id,
+                        'expense_category_id': one_time_item.id,
+                        'expense_item_id': False,
+                        'amount': amount,
+                        'prediction_input_mode': 'shared',
+                    },
+                )
 
+            for rule_line in repeating_lines:
+                expense_amount = self._compute_repeating_expense_amount(rule_line, year_no, gross_revenue, total_students, net_revenue)
+                expense_amount += one_time_by_name_and_year.get(rule_line.name.strip(), {}).get(year_no, 0.0)
+                repeating_item = repeating_item_map[rule_line.id]
+                self._upsert(
+                    'school.expense.values',
+                    [
+                        ('academic_year_id', '=', academic_year.id),
+                        ('expense_category_id', '=', repeating_item.id), ('expense_item_id', '=', False),
+                    ],
+                    {
+                        'academic_year_id': academic_year.id,
+                        'expense_category_id': repeating_item.id,
+                        'expense_item_id': False,
+                        'amount': expense_amount,
+                        'prediction_input_mode': 'extreme' if self.extreme_efficiency else 'normal',
+                        'cost_bucket': rule_line.cost_bucket,
+                    },
+                )
+
+            categories = academic_year.expense_value_ids.mapped('expense_category_id')
+            existing_items = academic_year.expense_value_ids.mapped('expense_item_id')
+            self.env['school.expense.values'].create([
+                {'academic_year_id': academic_year.id, 'expense_category_id': category.id,
+                 'expense_item_id': item.id, 'amount': 0, 'cost_bucket': category.cost_bucket,
+                 'prediction_input_mode': 'extreme' if self.extreme_efficiency else 'normal'}
+                for category in categories for item in category.expense_item_ids - existing_items
+            ])
+            if self.extreme_efficiency:
+                continue
             staff_counts = self._line_staff_count_map(year_input)
+            staff_counts.update(self._seed_staff_count_map(total_students))
+            staff_counts['teacher'] = max(int(staff_counts.get('teacher') or 0), int(subject_count_floor or 0))
             total_staff_count = max(sum(staff_counts.values()), 1)
             fallback_monthly_salary = salary_budget / (total_staff_count * 12.0) if salary_budget > 0 else 0.0
 
@@ -1445,8 +2078,10 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                 salary_line = salary_line_map.get(year_input.year_index)
                 monthly_salary = fallback_monthly_salary
                 if salary_line:
-                    monthly_salary = getattr(salary_line, role_field_map[position_key])
-                months_paid = salary_line.months_paid if salary_line else 12
+                    salary_field = role_field_map.get(position_key)
+                    if salary_field:
+                        monthly_salary = getattr(salary_line, salary_field)
+                months_paid = salary_line.months_paid if salary_line else 0
                 bonus = salary_line.bonus if salary_line else 0.0
 
                 self._upsert(
@@ -1478,14 +2113,12 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                 )
 
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Prediction setup complete',
-                'message': f'School baseline was generated from manual Students and Fees for {self.forecast_years} academic years with income tax {self.income_tax_percent:g}%.',
-                'type': 'success',
-                'next': {'type': 'ir.actions.act_window_close'},
-            },
+            'type': 'ir.actions.act_window', 'name': 'Forecast Years',
+            'res_model': 'school.academic.years', 'view_mode': 'list,form', 'target': 'current',
+            'domain': [('id', 'in', years.ids)],
+            'context': {'default_school_id': self.school_id.id, 'default_dataset_type': 'forecast'},
+            'views': [(self.env.ref('school_planning.view_school_academic_years_financial_summary_tree').id, 'list'),
+                      (self.env.ref('school_planning.view_school_year_workspace').id, 'form')],
         }
 
 
@@ -1502,8 +2135,12 @@ class SchoolAcademicYears(models.Model):
         default=lambda self: _extract_school_id_from_context(self.env),
     )
     academic_year_name = fields.Char(string='Academic Year Name', required=True, size=50)
+    dataset_type = fields.Selection([
+        ('legacy', 'Unclassified'), ('forecast', 'Forecast'), ('actual', 'Actual'),
+    ], string='Dataset', required=True, default='legacy', index=True)
     start_date = fields.Date(string='Start Date')
     end_date = fields.Date(string='End Date')
+    prediction_income_tax_percent = fields.Float(string='Prediction Income Tax %', default=0.0)
     fee_gross_total = fields.Float(string='Gross Revenue', compute='_compute_financial_summary', readonly=True, store=False)
     tax_deductions_total = fields.Float(string='Tax Deductions', compute='_compute_financial_summary', readonly=True, store=False)
     fee_total = fields.Float(string='Fee Revenue', compute='_compute_financial_summary', readonly=True, store=False)
@@ -1526,27 +2163,33 @@ class SchoolAcademicYears(models.Model):
     revenue_per_student_grade_group_avg = fields.Float(string='Revenue Per Student by Grade Group', compute='_compute_financial_summary', readonly=True, store=False)
     cost_per_student_grade_group_avg = fields.Float(string='Cost Per Student by Grade Group', compute='_compute_financial_summary', readonly=True, store=False)
     enrollment_ids = fields.One2many('school.grade.enrollment', 'academic_year_id', string='Grade Metrics', readonly=True)
+    fee_value_ids = fields.One2many('school.fee.values', 'academic_year_id', string='Income Details', readonly=True)
+    expense_value_ids = fields.One2many('school.expense.values', 'academic_year_id', string='Expense Details', readonly=True)
+    employment_salary_ids = fields.One2many('school.employment.salaries', 'academic_year_id', string='Payroll Details', readonly=True)
 
     @api.depends('school_id', 'start_date', 'end_date')
     def _compute_financial_summary(self):
         for record in self:
-            enrollments = self.env['school.grade.enrollment'].search([('academic_year_id', '=', record.id)])
-            fee_rows = self.env['school.fee.values'].search([('academic_year_id', '=', record.id)])
-            expense_rows = self.env['school.expense.values'].search([('academic_year_id', '=', record.id)])
-            salary_rows = self.env['school.employment.salaries'].search([('academic_year_id', '=', record.id)])
-            room_plan_rows = self.env['school.room.plan'].search([('academic_year_id', '=', record.id)])
-            asset_price_rows = self.env['school.asset.prices'].search([('academic_year_id', '=', record.id)])
+            enrollments = record.enrollment_ids
+            fee_rows = record.fee_value_ids
+            expense_rows = record.expense_value_ids
+            salary_rows = record.employment_salary_ids
+            room_plan_rows = record.room_plan_ids
+            asset_price_rows = record.asset_price_ids
 
             student_total = sum(row.student_count for row in enrollments)
 
             record.fee_gross_total = sum(row.gross_revenue_amount for row in fee_rows)
             record.tax_deductions_total = sum(row.tax_amount for row in fee_rows)
             record.fee_total = sum(row.revenue_amount for row in fee_rows)
-            record.expense_total = sum(row.amount for row in expense_rows)
+            record.expense_total = expense_rows._category_amount_total()
             record.salary_total = sum(row.annual_cost for row in salary_rows)
-            record.new_rooms_expense_total = sum(row.new_rooms_asset_cost for row in room_plan_rows)
-            record.operating_cost_total = record.expense_total + record.salary_total + record.new_rooms_expense_total
-            record.startup_cost_total = sum(row.startup_cost for row in asset_price_rows)
+            if record.payroll_summary_enabled:
+                record.expense_total = expense_rows.filtered(lambda row: row.cost_bucket != 'employee')._category_amount_total()
+                record.salary_total = record._payroll_revenue_base() * record.payroll_rate / 100 if record.payroll_basis == 'percent' else record.payroll_fixed_amount
+            record.startup_cost_total = sum(row.startup_cost for row in asset_price_rows) if record.infrastructure_mode == 'new' else 0
+            record.new_rooms_expense_total = (record.startup_cost_total if record.infrastructure_seeded else sum(row.new_rooms_asset_cost for row in room_plan_rows)) if record.infrastructure_mode == 'new' else 0
+            record.operating_cost_total = record.expense_total + record.salary_total + (0 if record.infrastructure_seeded else record.new_rooms_expense_total)
             record.total_deductions = record.tax_deductions_total + record.operating_cost_total
             record.operating_profit = record.fee_total - record.operating_cost_total
             record.net_budget = record.operating_profit - record.startup_cost_total
@@ -1704,7 +2347,7 @@ class SchoolAcademicYears(models.Model):
             pdf.setFont('Helvetica', 11)
             pdf.drawString(40, y, f'School: {school_name}')
             y -= 16
-            pdf.drawString(40, y, f'Academic Year: {year.academic_year_name or "-"}')
+            pdf.drawString(40, y, f'Academic Year: {year.display_name}')
             y -= 16
             pdf.drawString(40, y, f'Period: {year.start_date or "-"} - {year.end_date or "-"}')
             y -= 24
@@ -1760,7 +2403,7 @@ class SchoolAcademicYears(models.Model):
                     pdf.showPage()
                     y = page_height - 50
                     pdf.setFont('Helvetica-Bold', 10)
-                    pdf.drawString(40, y, f'Continued: {year.academic_year_name or "-"}')
+                    pdf.drawString(40, y, f'Continued: {year.display_name}')
                     y -= 18
                     pdf.setFont('Helvetica-Bold', 9)
                     for idx, header in enumerate(headers):
@@ -1803,11 +2446,11 @@ class SchoolFinancialSummaryEmailWizard(models.TransientModel):
     mail_server_id = fields.Many2one(
         'ir.mail_server',
         string='Gmail Outgoing Server',
-        required=True,
+        groups='base.group_system',
         domain=['|', ('smtp_authentication', '=', 'gmail'), ('smtp_host', 'ilike', 'smtp.gmail.com')],
         default=lambda self: self.env['ir.mail_server'].search([
             '|', ('smtp_authentication', '=', 'gmail'), ('smtp_host', 'ilike', 'smtp.gmail.com')
-        ], limit=1),
+        ], limit=1) if self.env.user.has_group('base.group_system') else False,
         help='Select an outgoing Gmail mail server (OAuth or SMTP login).',
     )
     email_to = fields.Char(string='Recipient Emails', required=True, help='Comma-separated email addresses.')
@@ -1829,7 +2472,10 @@ class SchoolFinancialSummaryEmailWizard(models.TransientModel):
         years = self.academic_year_ids.sorted(key=lambda y: (y.start_date or '', y.academic_year_name or '', y.id))
         if not years:
             raise ValidationError('Please select at least one academic year.')
-        if not self.mail_server_id:
+        server = self.mail_server_id if self.env.user.has_group('base.group_system') else self.env['ir.mail_server'].sudo().search([
+            '|', ('smtp_authentication', '=', 'gmail'), ('smtp_host', 'ilike', 'smtp.gmail.com')
+        ], limit=1)
+        if not server:
             raise ValidationError('Please configure and select a Gmail outgoing server with a valid token.')
 
         pdf_bytes = years._build_financial_summary_pdf_bytes()
@@ -1847,11 +2493,12 @@ class SchoolFinancialSummaryEmailWizard(models.TransientModel):
             'subject': self.subject,
             'body_html': self.body_html,
             'email_to': self.email_to,
-            'mail_server_id': self.mail_server_id.id,
+            'email_from': self.env.user.email_formatted or self.env.company.partner_id.email_formatted,
+            'mail_server_id': server.id,
             'attachment_ids': [(6, 0, [attachment.id])],
         }
-        mail = self.env['mail.mail'].create(mail_values)
-        mail.send()
+        mail = self.env['mail.mail'].sudo().create(mail_values)
+        mail.send(raise_exception=True)
 
         return {
             'type': 'ir.actions.client',
@@ -1863,29 +2510,6 @@ class SchoolFinancialSummaryEmailWizard(models.TransientModel):
                 'next': {'type': 'ir.actions.act_window_close'},
             },
         }
-
-    @api.constrains('school_id', 'academic_year_name')
-    def _check_unique_academic_year(self):
-        for record in self:
-            domain = [
-                ('school_id', '=', record.school_id.id),
-                ('academic_year_name', '=', record.academic_year_name),
-                ('id', '!=', record.id)
-            ]
-            if self.search_count(domain) > 0:
-                raise ValidationError('The academic year name must be unique per school.')
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        records = super().create(vals_list)
-        self.env['school.financial.report']._refresh_for_academic_years(records.ids)
-        return records
-
-    def write(self, vals):
-        result = super().write(vals)
-        self.env['school.financial.report']._refresh_for_academic_years(self.ids)
-        return result
-
 
 class SchoolGradeGroups(models.Model):
     _name = 'school.grade.groups'
@@ -1959,14 +2583,15 @@ class SchoolSubjects(models.Model):
 
 class SchoolTaxRules(models.Model):
     _name = 'school.tax.rules'
-    _description = 'Shared Tax Rules (Master Data)'
+    _description = 'School Tax Types (Master Data)'
     _order = 'name asc, percentage asc, id asc'
 
     school_id = fields.Many2one(
         'school.schools',
-        string='Legacy School',
-        ondelete='set null',
-        help='Deprecated compatibility field. Tax rules are shared by all schools.',
+        string='School',
+        required=True,
+        ondelete='cascade',
+        default=lambda self: _extract_school_id_from_context(self.env),
     )
     name = fields.Char(string='Name', required=True, size=100)
     percentage = fields.Float(string='Percentage', required=True)
@@ -1976,18 +2601,27 @@ class SchoolTaxRules(models.Model):
         for record in self:
             record.display_name = f'{record.name} ({record.percentage * 100:g}%)'
 
-    @api.constrains('name', 'percentage')
+    @api.model
+    def name_search(self, name='', domain=None, operator='ilike', limit=100):
+        domain = list(domain or [])
+        school_id = _extract_school_id_from_context(self.env)
+        if school_id:
+            domain.append(('school_id', '=', school_id))
+        return super().name_search(name=name, domain=domain, operator=operator, limit=limit)
+
+    @api.constrains('school_id', 'name', 'percentage')
     def _check_unique_shared_rule(self):
         for record in self:
             normalized_name = (record.name or '').strip()
             duplicate = self.search([
                 ('id', '!=', record.id),
+                ('school_id', '=', record.school_id.id),
                 ('name', '=ilike', normalized_name),
                 ('percentage', '=', record.percentage),
             ], limit=1)
             if duplicate:
                 raise ValidationError(
-                    f'The shared tax rule {record.display_name} already exists.'
+                    f'The tax type {record.display_name} already exists for this school.'
                 )
 
 
@@ -2009,8 +2643,13 @@ class SchoolFeeTypes(models.Model):
         'school.tax.rules',
         string='Tax Rule',
         ondelete='set null',
-        domain=[('school_id', '=', False)],
+        domain="[('school_id', '=', school_id)]",
     )
+
+    @api.constrains('school_id', 'tax_rule_id')
+    def _check_tax_school(self):
+        if any(fee.tax_rule_id and fee.tax_rule_id.school_id != fee.school_id for fee in self):
+            raise ValidationError('Fee tax types must belong to the same school as the fee type.')
 
 
 class SchoolExpenseCategories(models.Model):
@@ -2026,6 +2665,38 @@ class SchoolExpenseCategories(models.Model):
     )
     name = fields.Char(string='Name', required=True, size=100)
     display_order = fields.Integer(string='Display Order', required=True)
+    expense_item_ids = fields.One2many('school.expense.items', 'expense_category_id', string='Expense Items')
+    prediction_seed_id = fields.Many2one('school.prediction.seed.expense', ondelete='set null', copy=False)
+    cost_bucket = fields.Selection([('operating', 'Expenses'), ('employee', 'Payroll')], default='operating', required=True)
+
+    def write(self, values):
+        if {'name', 'school_id', 'cost_bucket'} & values.keys():
+            years = self.env['school.expense.values'].search([('expense_category_id', 'in', self.ids)]).mapped('academic_year_id')
+            if any(year.baseline_locked for year in years):
+                raise ValidationError('Categories used by an approved forecast cannot be changed.')
+        if 'school_id' in values and any(category.school_id.id != values['school_id'] for category in self):
+            if self.mapped('expense_item_ids') or self.env['school.expense.values'].search_count([('expense_category_id', 'in', self.ids)]):
+                raise ValidationError('A category with items or yearly values cannot move to another school.')
+        if 'cost_bucket' in values and self.env['school.expense.values'].search_count([('expense_category_id', 'in', self.ids), ('cost_bucket', '!=', values['cost_bucket'])]):
+            raise ValidationError('The category type cannot change while it has yearly values of another type.')
+        return super().write(values)
+
+    def action_delete_expense_category(self):
+        self.ensure_one()
+        self.unlink()
+        return False
+
+    def unlink(self):
+        self.env['school.expense.values'].search([
+            ('expense_category_id', 'in', self.ids),
+        ]).unlink()
+        return super().unlink()
+
+    def action_open_expense_category(self):
+        self.ensure_one()
+        return {'type': 'ir.actions.act_window', 'name': 'Expense Category', 'res_model': self._name,
+                'res_id': self.id, 'views': [(self.env.ref('school_planning.view_school_expense_categories_form').id, 'form')],
+                'target': 'new', 'context': dict(self.env.context, default_school_id=self.school_id.id, default_display_order=10)}
 
     @api.model
     def _school_domain_from_context(self):
@@ -2090,10 +2761,35 @@ class SchoolExpenseItems(models.Model):
         string='Expense Category',
         required=True,
         ondelete='cascade',
-        domain="[('school_id', '=', school_id.id)]",
+        domain="[('school_id', '=', school_id)]",
     )
     name = fields.Char(string='Name', required=True, size=100)
     display_order = fields.Integer(string='Display Order', required=True)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        year = self.env['school.academic.years'].browse(self.env.context.get('default_academic_year_id')).exists()
+        if year and not year.baseline_locked and not self.env.context.get('skip_expense_template_sync'):
+            year.expense_value_ids._ensure_optional_expense_items()
+        return records
+
+    def write(self, values):
+        rows = self.env['school.expense.values'].search([('expense_item_id', 'in', self.ids)])
+        if {'name', 'school_id', 'expense_category_id'} & values.keys() and any(year.baseline_locked for year in rows.mapped('academic_year_id')):
+            raise ValidationError('Items used by an approved forecast cannot be changed.')
+        if {'school_id', 'expense_category_id'} & values.keys() and rows:
+            raise ValidationError('An item with yearly expenses cannot move to another category or school.')
+        return super().write(values)
+
+    def unlink(self):
+        self.env['school.expense.values'].search([('expense_item_id', 'in', self.ids)]).unlink()
+        return super().unlink()
+
+    @api.constrains('school_id', 'expense_category_id')
+    def _check_category_school(self):
+        if any(item.expense_category_id.school_id != item.school_id for item in self):
+            raise ValidationError('Expense items and their categories must belong to the same school.')
 
     @api.onchange('school_id')
     def _onchange_school_id(self):
@@ -2362,7 +3058,7 @@ class SchoolGradeEnrollment(models.Model):
             year_total_students = sum(year_enrollments.mapped('student_count'))
             total_deductions = (
                 sum(year_fee_rows.mapped('tax_amount'))
-                + sum(year_expense_rows.mapped('amount'))
+                + year_expense_rows._category_amount_total()
                 + sum(year_salary_rows.mapped('annual_cost'))
                 + sum(year_room_rows.mapped('new_rooms_asset_cost'))
             )
@@ -2394,13 +3090,10 @@ class SchoolSubjectDistribution(models.Model):
         aggregator='sum',
     )
 
-    @api.depends('weekly_hours', 'grade_level_id', 'academic_year_id')
+    @api.depends('weekly_hours', 'grade_level_id', 'academic_year_id', 'academic_year_id.enrollment_ids.class_count')
     def _compute_teaching_hours(self):
         for record in self:
-            enrollment = self.env['school.grade.enrollment'].search([
-                ('academic_year_id', '=', record.academic_year_id.id),
-                ('grade_level_id', '=', record.grade_level_id.id)
-            ], limit=1)
+            enrollment = record.academic_year_id.enrollment_ids.filtered(lambda row: row.grade_level_id == record.grade_level_id)[:1]
             classes = enrollment.class_count if enrollment else 0
             record.total_teaching_hours = record.weekly_hours * classes
 
@@ -2418,17 +3111,16 @@ class SchoolFeeValues(models.Model):
     tax_amount = fields.Float(string='Tax Deduction', compute='_compute_revenue_metrics', store=True, aggregator='sum')
     revenue_amount = fields.Float(string='Revenue (Calculated)', compute='_compute_revenue_metrics', store=True, aggregator='sum')
 
-    @api.depends('academic_year_id', 'grade_level_id', 'amount', 'fee_type_id', 'fee_type_id.is_taxable', 'fee_type_id.tax_rule_id', 'fee_type_id.tax_rule_id.percentage')
+    @api.depends('academic_year_id', 'academic_year_id.dataset_type', 'academic_year_id.prediction_income_tax_percent', 'academic_year_id.enrollment_ids.student_count', 'grade_level_id', 'amount', 'fee_type_id', 'fee_type_id.is_taxable', 'fee_type_id.tax_rule_id', 'fee_type_id.tax_rule_id.percentage')
     def _compute_revenue_metrics(self):
         for record in self:
-            enrollment = self.env['school.grade.enrollment'].search([
-                ('academic_year_id', '=', record.academic_year_id.id),
-                ('grade_level_id', '=', record.grade_level_id.id)
-            ], limit=1)
+            enrollment = record.academic_year_id.enrollment_ids.filtered(lambda enrollment: enrollment.grade_level_id == record.grade_level_id)[:1]
             students = enrollment.student_count if enrollment else 0
             gross = record.amount * students
             tax_rate = 0.0
-            if record.fee_type_id.is_taxable and record.fee_type_id.tax_rule_id:
+            if record.academic_year_id.dataset_type == 'forecast':
+                tax_rate = min(max(float(record.academic_year_id.prediction_income_tax_percent or 0.0), 0.0), 100.0) / 100.0
+            elif record.fee_type_id.is_taxable and record.fee_type_id.tax_rule_id:
                 tax_rate = (record.fee_type_id.tax_rule_id.percentage or 0.0)
             tax_amount = gross * tax_rate
 
@@ -2461,8 +3153,13 @@ class SchoolExpenseValues(models.Model):
     _description = 'Expense Values (Year Data)'
 
     academic_year_id = fields.Many2one('school.academic.years', string='Academic Year', required=True, ondelete='cascade')
-    expense_item_id = fields.Many2one('school.expense.items', string='Expense Item', required=True, ondelete='cascade')
+    expense_item_id = fields.Many2one('school.expense.items', string='Expense Item', ondelete='cascade')
     amount = fields.Float(string='Amount (Input)', required=True)
+    prediction_input_mode = fields.Selection([
+        ('normal', 'Quick Prediction - Normal'),
+        ('extreme', 'Quick Prediction - Extreme Efficiency'),
+        ('shared', 'Quick Prediction - One-Time'),
+    ], readonly=True, copy=False)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -2734,7 +3431,7 @@ class SchoolRoomPlan(models.Model):
         ], order='start_date asc, academic_year_name asc, id asc')
 
     def _previous_year(self, academic_year, school_id):
-        years = self._ordered_school_years(school_id)
+        years = self._ordered_school_years(school_id).filtered(lambda year: year.dataset_type == academic_year.dataset_type)
         year_ids = years.ids
         if academic_year.id not in year_ids:
             return False
@@ -2744,7 +3441,7 @@ class SchoolRoomPlan(models.Model):
         return years[idx - 1]
 
     def _next_year(self, academic_year, school_id):
-        years = self._ordered_school_years(school_id)
+        years = self._ordered_school_years(school_id).filtered(lambda year: year.dataset_type == academic_year.dataset_type)
         year_ids = years.ids
         if academic_year.id not in year_ids:
             return False
@@ -2874,7 +3571,10 @@ class SchoolRoomPlan(models.Model):
             if missing_asset_ids:
                 fallback_prices = self.env['school.asset.prices'].search([
                     ('asset_item_id', 'in', missing_asset_ids),
-                ], order='academic_year_id desc, id desc')
+                    ('academic_year_id.school_id', '=', record.academic_year_id.school_id.id),
+                    ('academic_year_id.dataset_type', '=', record.academic_year_id.dataset_type),
+                    ('academic_year_id.start_date', '<', record.academic_year_id.start_date),
+                ], order='academic_year_id.start_date desc, id desc')
                 for fallback in fallback_prices:
                     if fallback.asset_item_id.id not in price_map:
                         price_map[fallback.asset_item_id.id] = fallback.unit_price
@@ -2940,13 +3640,13 @@ class SchoolFinancialReport(models.Model):
 
     operating_profit = fields.Float(string='Operating Profit')
     net_profit = fields.Float(string='Net Profit (Budget)')
-    net_margin_pct = fields.Float(string='Net Margin %')
+    net_margin_pct = fields.Float(string='Net Margin %', aggregator='avg')
 
     prior_year_gross_revenue = fields.Float(string='Prior Year Gross Revenue')
     prior_year_net_revenue = fields.Float(string='Prior Year Net Revenue')
     prior_year_net_profit = fields.Float(string='Prior Year Net Profit')
-    revenue_yoy_pct = fields.Float(string='Revenue YoY %')
-    profit_yoy_pct = fields.Float(string='Net Profit YoY %')
+    revenue_yoy_pct = fields.Float(string='Revenue YoY %', aggregator='avg')
+    profit_yoy_pct = fields.Float(string='Net Profit YoY %', aggregator='avg')
 
     _academic_year_unique = models.Constraint(
         'unique(academic_year_id)',
@@ -2954,11 +3654,25 @@ class SchoolFinancialReport(models.Model):
     )
 
     @api.model
+    def action_open_analytics(self, action_xmlid):
+        action = self.env['ir.actions.actions']._for_xml_id(action_xmlid)
+        report = self.search([], order='school_id, start_date, id', limit=1)
+        school = report.school_id or self.env['school.schools'].search([], order='name, id', limit=1)
+        preferred = self.search([('school_id', '=', school.id), ('dataset_type', '=', 'forecast')], limit=1)
+        action['context'] = {'searchpanel_default_school_id': school.id,
+                     'searchpanel_default_dataset_type': 'forecast' if preferred else report.dataset_type or 'legacy'}
+        if action_xmlid == 'school_planning.action_school_financial_report_yoy_chart':
+            action['context']['graph_measure'] = 'revenue_yoy_pct'
+        return action
+
+    @api.model
     def _refresh_all(self):
         self._refresh_for_academic_years(self.env['school.academic.years'].search([]).ids)
 
     @api.model
     def _refresh_for_academic_years(self, academic_year_ids):
+        if self.env.context.get('defer_school_financial_refresh'):
+            return
         academic_year_ids = {year_id for year_id in (academic_year_ids or []) if year_id}
         if not academic_year_ids:
             return
@@ -2975,6 +3689,13 @@ class SchoolFinancialReport(models.Model):
                 academic_year_ids.add(next_year.id)
         years = self.env['school.academic.years'].browse(list(academic_year_ids)).exists()
 
+        self.env['school.employment.salaries'].search([
+            ('academic_year_id', 'in', years.ids),
+        ]).invalidate_recordset(['employee_count', 'annual_cost'])
+        years.invalidate_recordset([
+            name for name, field in years._fields.items()
+            if field.compute == '_compute_financial_summary'
+        ])
         for year in years:
             previous_year = room_plan_model._previous_year(year, year.school_id.id)
 

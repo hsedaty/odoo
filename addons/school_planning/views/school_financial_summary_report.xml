@@ -24,6 +24,9 @@
                             <strong>Academic Year:</strong>
                             <span t-field="o.academic_year_name"/>
                             <br/>
+                            <strong>Dataset:</strong>
+                            <span t-field="o.dataset_type"/>
+                            <br/>
                             <strong>Period:</strong>
                             <span t-field="o.start_date"/>
                             <span> - </span>

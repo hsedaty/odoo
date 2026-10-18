@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_school_efficiency_defaults_list" model="ir.ui.view">
+        <field name="name">school.efficiency.defaults.list</field><field name="model">school.schools</field>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <list create="false"><field name="name"/><field name="currency_id"/><field name="default_students_per_classroom"/><field name="default_classroom_weekly_hours"/><field name="default_teacher_weekly_hours"/><field name="default_infrastructure"/></list>
+        </field>
+    </record>
+    <record id="view_school_efficiency_defaults_form" model="ir.ui.view">
+        <field name="name">school.efficiency.defaults.form</field><field name="model">school.schools</field>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <form string="Planning Defaults" create="false">
+                <header><button name="action_seed_asset_defaults" type="object" string="Seed Asset Defaults" icon="fa-plus"/></header>
+                <sheet>
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group><field name="currency_id" readonly="1"/><field name="default_infrastructure"/><field name="default_students_per_classroom"/><field name="default_classroom_weekly_hours"/><field name="default_teacher_weekly_hours"/></group>
+                    <separator string="Asset Price Seeds"/>
+                    <field name="asset_seed_ids" nolabel="1" context="{'default_school_id': id}">
+                        <list editable="bottom"><field name="name"/><field name="asset_type" optional="hide"/><field name="seed_unit_price"/><field name="seed_quantity"/><field name="seed_basis"/><field name="display_order" optional="hide"/></list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_school_efficiency_defaults" model="ir.actions.act_window">
+        <field name="name">Planning Defaults &amp; Asset Seeds</field><field name="res_model">school.schools</field><field name="view_mode">list,form</field><field name="view_id" ref="view_school_efficiency_defaults_list"/>
+    </record>
+    <record id="action_school_efficiency_defaults_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field><field name="view_mode">form</field><field name="view_id" ref="view_school_efficiency_defaults_form"/><field name="act_window_id" ref="action_school_efficiency_defaults"/>
+    </record>
+    <record id="action_school_efficiency_defaults_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field><field name="view_mode">list</field><field name="view_id" ref="view_school_efficiency_defaults_list"/><field name="act_window_id" ref="action_school_efficiency_defaults"/>
+    </record>
+    <record id="view_prediction_seed_configuration_form" model="ir.ui.view">
+        <field name="name">school.prediction.seed.configuration.form</field><field name="model">school.prediction.seed.configuration</field>
+        <field name="arch" type="xml">
+            <form string="Seed Configuration" create="false" delete="false">
+                <sheet>
+                    <group>
+                        <group string="Classrooms &amp; Teaching"><field name="students_per_classroom"/><field name="classroom_weekly_hours" string="Hours / Week / Classroom"/><field name="teacher_weekly_hours" string="Hours / Week / Teacher"/><field name="infrastructure_mode"/></group>
+                        <group string="Financial Assumptions"><field name="income_tax_percent" string="Income Tax %"/><field name="fee_increase_percent" string="Annual Fee Increase %"/><field name="salary_increase_percent" string="Annual Salary Increase %"/></group>
+                    </group>
+                    <group>
+                        <group string="Payroll Assumption">
+                            <field name="payroll_start_year_index"/>
+                            <field name="payroll_trend" widget="school_expense_trend"/>
+                            <field name="payroll_base_annual_amount" string="Base Amount / Revenue %"/>
+                            <field name="payroll_annual_change_percent"/>
+                        </group>
+                        <group/>
+                    </group>
+                    <notebook>
+                        <page string="Fee Seeds"><field name="fee_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/><field name="is_optional"/></list></field></page>
+                        <page string="Tax Seeds"><field name="tax_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/><field name="percentage" widget="percentage"/></list></field></page>
+                        <page string="Asset Seeds">
+                            <field name="asset_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="name"/><field name="unit_price" string="Unit Price (School Currency)"/><field name="quantity"/><field name="basis"/></list></field>
+                        </page>
+                        <page string="Expense Seeds">
+                            <field name="expense_ids" nolabel="1" context="{'default_configuration_id': id}">
+                                <list><field name="display_order" widget="handle"/><field name="name"/><field name="cost_bucket"/><field name="trend" widget="school_expense_trend"/><field name="base_annual_amount" string="Base Amount / Revenue %"/></list>
+                                <form string="Expense Seed">
+                                    <group><group><field name="name"/><field name="cost_bucket"/><field name="display_order" invisible="1"/></group><group><field name="start_year_index"/><field name="trend" widget="school_expense_trend"/><field name="base_annual_amount" string="Base Amount / Revenue %"/><field name="annual_change_percent"/></group></group>
+                                    <field name="item_ids" nolabel="1"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/></list></field>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Staffing Seeds">
+                            <field name="staffing_seed_ids" nolabel="1" context="{'default_configuration_id': id}">
+                                <list editable="bottom">
+                                    <field name="display_order" widget="handle"/>
+                                    <field name="title"/>
+                                    <field name="code"/>
+                                    <field name="calculation_method"/>
+                                    <field name="parameter_value"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_school_prediction_seed_configuration" model="ir.actions.act_window">
+        <field name="name">Seed Configuration</field><field name="res_model">school.prediction.seed.configuration</field><field name="view_mode">form</field><field name="view_id" ref="view_prediction_seed_configuration_form"/><field name="res_id" ref="prediction_seed_configuration"/>
+    </record>
+    <menuitem id="menu_school_efficiency_defaults" name="Seed Configuration" parent="school_planning.menu_school_planning_config" action="action_school_prediction_seed_configuration" sequence="1"/>
+    <record id="view_school_prediction_efficiency_inputs" model="ir.ui.view">
+        <field name="name">school.prediction.efficiency.inputs</field><field name="model">school.prediction.quick.setup.wizard</field><field name="inherit_id" ref="school_planning.view_school_prediction_quick_setup_wizard_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='max_students_per_class_input']/.." position="attributes"><attribute name="invisible">False</attribute></xpath>
+            <xpath expr="//field[@name='subject_hours_per_class']" position="replace"><field name="classroom_weekly_hours"/></xpath>
+            <xpath expr="//field[@name='max_students_per_class_input']" position="before"><field name="infrastructure_mode"/></xpath>
+            <xpath expr="//field[@name='year_salary_line_ids']/.." position="after">
+                <field name="payroll_rules_initialized" invisible="1"/>
+                <group string="Payroll" invisible="not extreme_efficiency">
+                    <field name="payroll_rule_ids" nolabel="1" colspan="2" context="{'default_input_mode': 'extreme', 'default_cost_bucket': 'employee'}">
+                        <list editable="bottom" create="false" delete="false">
+                            <field name="name" readonly="1"/><field name="start_year_index"/><field name="trend" widget="school_expense_trend"/>
+                            <field name="base_annual_amount" string="Salaries % / Base"/><field name="salary_base_amount"/><field name="annual_change_percent" string="Annual Change" readonly="trend in ['stable', 'revenue_stable']"/>
+                            <field name="input_mode" column_invisible="1"/><field name="cost_bucket" column_invisible="1"/>
+                            <field name="seed_id" column_invisible="1"/><field name="school_category_id" column_invisible="1"/><field name="item_templates" column_invisible="1"/>
+                        </list>
+                    </field>
+                </group>
+            </xpath>
+            <xpath expr="//field[@name='extreme_expense_line_ids']" position="attributes"><attribute name="context">{'default_input_mode': 'extreme', 'default_cost_bucket': 'operating'}</attribute></xpath>
+            <xpath expr="//group[div[hasclass('text-muted')]]" position="replace"/>
+        </field>
+    </record>
+</odoo>

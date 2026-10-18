@@ -12,14 +12,15 @@
             <list string="Financial Report" create="false" edit="false" delete="false" sample="1">
                 <field name="school_id"/>
                 <field name="academic_year_name"/>
+                <field name="dataset_type" widget="badge"/>
                 <field name="total_enrolled_students" sum="Students"/>
                 <field name="gross_revenue" sum="Gross Revenue"/>
                 <field name="net_revenue" sum="Net Revenue"/>
                 <field name="operating_cost_total" sum="Operating Cost"/>
                 <field name="operating_profit" sum="Operating Profit"/>
                 <field name="net_profit" sum="Net Profit" decoration-success="net_profit &gt;= 0" decoration-danger="net_profit &lt; 0"/>
-                <field name="revenue_yoy_pct" string="Revenue YoY %" widget="percentage"/>
-                <field name="profit_yoy_pct" string="Profit YoY %" widget="percentage"/>
+                <field name="revenue_yoy_pct" string="Revenue YoY %"/>
+                <field name="profit_yoy_pct" string="Profit YoY %"/>
             </list>
         </field>
     </record>
@@ -30,6 +31,7 @@
         <field name="arch" type="xml">
             <pivot string="Financial Pivot Analysis" sample="1">
                 <field name="school_id" type="row"/>
+                <field name="dataset_type" type="row"/>
                 <field name="academic_year_name" type="row"/>
                 <field name="total_enrolled_students" type="measure"/>
                 <field name="gross_revenue" type="measure"/>
@@ -53,11 +55,11 @@
         <field name="name">school.financial.report.graph.yoy</field>
         <field name="model">school.financial.report</field>
         <field name="arch" type="xml">
-            <graph string="YoY Growth Chart" type="line" sample="1">
+            <graph string="YoY Growth Chart" type="line" sample="0">
                 <field name="academic_year_name" type="row"/>
-                <field name="net_revenue" type="measure"/>
-                <field name="net_profit" type="measure"/>
-                <field name="gross_revenue" type="measure"/>
+                <field name="dataset_type" type="row"/>
+                <field name="profit_yoy_pct" type="measure"/>
+                <field name="revenue_yoy_pct" type="measure"/>
             </graph>
         </field>
     </record>
@@ -68,6 +70,7 @@
         <field name="arch" type="xml">
             <graph string="Revenue / Expense / Profit" type="bar" sample="1">
                 <field name="academic_year_name" type="row"/>
+                <field name="dataset_type" type="row"/>
                 <field name="gross_revenue" type="measure"/>
                 <field name="operating_cost_total" type="measure"/>
                 <field name="operating_profit" type="measure"/>
@@ -120,6 +123,10 @@
         <field name="model">school.financial.report</field>
         <field name="arch" type="xml">
             <search string="Financial Report">
+                <searchpanel view_types="graph,pivot,list">
+                    <field name="school_id" select="one" expand="1" limit="0"/>
+                    <field name="dataset_type" select="one" expand="1"/>
+                </searchpanel>
                 <field name="school_id"/>
                 <field name="academic_year_name"/>
                 <filter name="filter_profitable" string="Profitable Years" domain="[('net_profit', '&gt;=', 0)]"/>
@@ -127,6 +134,7 @@
                 <separator/>
                 <filter name="group_school" string="School" context="{'group_by': 'school_id'}"/>
                 <filter name="group_year" string="Academic Year" context="{'group_by': 'academic_year_name'}"/>
+                <filter name="group_dataset" string="Dataset" context="{'group_by': 'dataset_type'}"/>
             </search>
         </field>
     </record>
@@ -156,8 +164,27 @@
         <field name="search_view_id" ref="view_school_financial_report_search"/>
     </record>
 
-    <menuitem id="menu_school_financial_report_yoy_chart" name="YoY Growth Chart" parent="menu_school_planning_overview" action="action_school_financial_report_yoy_chart" sequence="4"/>
-    <menuitem id="menu_school_financial_report_profit_chart" name="Revenue / Expense / Profit Chart" parent="menu_school_planning_overview" action="action_school_financial_report_profit_chart" sequence="5"/>
-    <menuitem id="menu_school_financial_report_pivot" name="Financial Pivot Analysis" parent="menu_school_planning_overview" action="action_school_financial_report_pivot" sequence="6"/>
+    <record id="action_school_financial_report_yoy_select_school" model="ir.actions.server">
+        <field name="name">YoY Growth Chart</field>
+        <field name="model_id" ref="model_school_schools"/>
+        <field name="state">code</field>
+        <field name="code">action = env['school.financial.report'].action_open_analytics('school_planning.action_school_financial_report_yoy_chart')</field>
+    </record>
+    <record id="action_school_financial_report_profit_select_school" model="ir.actions.server">
+        <field name="name">Revenue / Expense / Profit Chart</field>
+        <field name="model_id" ref="model_school_schools"/>
+        <field name="state">code</field>
+        <field name="code">action = env['school.financial.report'].action_open_analytics('school_planning.action_school_financial_report_profit_chart')</field>
+    </record>
+    <record id="action_school_financial_report_pivot_select_school" model="ir.actions.server">
+        <field name="name">Financial Pivot Analysis</field>
+        <field name="model_id" ref="model_school_schools"/>
+        <field name="state">code</field>
+        <field name="code">action = env['school.financial.report'].action_open_analytics('school_planning.action_school_financial_report_pivot')</field>
+    </record>
+
+    <menuitem id="menu_school_financial_report_yoy_chart" name="YoY Growth Chart" parent="menu_school_planning_overview" action="action_school_financial_report_yoy_select_school" sequence="4"/>
+    <menuitem id="menu_school_financial_report_profit_chart" name="Revenue / Expense / Profit Chart" parent="menu_school_planning_overview" action="action_school_financial_report_profit_select_school" sequence="5"/>
+    <menuitem id="menu_school_financial_report_pivot" name="Financial Pivot Analysis" parent="menu_school_planning_overview" action="action_school_financial_report_pivot_select_school" sequence="6"/>
 
 </odoo>

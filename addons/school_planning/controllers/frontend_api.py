@@ -103,6 +103,7 @@ class SchoolPlanningFrontendApiController(http.Controller):
                 {
                     'id': row.id,
                     'yearId': row.academic_year_id.id,
+                    'categoryId': row.expense_category_id.id,
                     'itemId': row.expense_item_id.id,
                     'amount': float(row.amount or 0),
                 }
@@ -282,6 +283,8 @@ class SchoolPlanningFrontendApiController(http.Controller):
                     'name': 'academic_year_name',
                     'startDate': 'start_date',
                     'endDate': 'end_date',
+                    'datasetType': 'dataset_type',
+                    'forecastYearId': 'forecast_year_id',
                 },
             },
             'gradeGroup': {
@@ -692,6 +695,7 @@ class SchoolPlanningFrontendApiController(http.Controller):
                 'model': 'school.expense.values',
                 'fields': {
                     'yearId': 'academic_year_id',
+                    'categoryId': 'expense_category_id',
                     'itemId': 'expense_item_id',
                     'amount': 'amount',
                 },
@@ -985,7 +989,6 @@ class SchoolPlanningFrontendApiController(http.Controller):
         return create_vals
 
     def _prepare_tax_rule_create_vals(self, create_vals):
-        create_vals.pop('school_id', None)
         return create_vals
 
     def _prepare_expense_category_create_vals(self, create_vals):
@@ -1117,6 +1120,11 @@ class SchoolPlanningFrontendApiController(http.Controller):
             'id': row.id,
             'schoolId': row.school_id.id,
             'name': row.academic_year_name,
+            'displayName': row.display_name,
+            'datasetType': row.dataset_type,
+            'forecastYearId': row.forecast_year_id.id or False,
+            'baselineLocked': row.baseline_locked,
+            'actualStatus': row.actual_status,
             'startDate': str(row.start_date or ''),
             'endDate': str(row.end_date or ''),
         }
@@ -1150,7 +1158,7 @@ class SchoolPlanningFrontendApiController(http.Controller):
     def _serialize_tax_rule(self, row):
         return {
             'id': row.id,
-            'schoolId': False,
+            'schoolId': row.school_id.id,
             'name': row.name or '',
             'percentage': float(row.percentage or 0),
         }
@@ -1251,6 +1259,7 @@ class SchoolPlanningFrontendApiController(http.Controller):
         return {
             'id': row.id,
             'yearId': row.academic_year_id.id,
+            'categoryId': row.expense_category_id.id,
             'itemId': row.expense_item_id.id,
             'amount': float(row.amount or 0),
         }

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="curriculum_us_standards" model="school.curriculum.preset">
-        <field name="name">US Standards-Aligned (State/District Adaptable)</field>
+        <field name="name">American Curriculum (Cognia Accreditation)</field>
         <field name="code">US</field>
-        <field name="description">The United States has no single national curriculum. This adaptable catalog combines widely used current frameworks: Common Core ELA/Math, NGSS, C3 Social Studies, National Core Arts Standards, 2024 SHAPE Health/PE, ACTFL World-Readiness, and 2026 CSTA Computer Science. Confirm state and district requirements before applying.</field>
-        <field name="source_url">https://www.ed.gov/about/ed-overview/federal-role-in-education</field>
-        <field name="verified_on">2026-09-25</field>
+        <field name="description">American curriculum planning for schools pursuing or holding Cognia accreditation. Cognia accredits institutions, not a single prescribed curriculum or mandatory subject list. These configurable subject options draw on commonly used American standards; select only the subjects the school offers and confirm local requirements. Selecting this preset does not establish or verify the school's accreditation status.</field>
+        <field name="source_url">https://www.cognia.org/accreditation/</field>
+        <field name="verified_on">2026-10-10</field>
         <field name="display_order">10</field>
     </record>
     <record id="curriculum_england" model="school.curriculum.preset">

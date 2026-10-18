@@ -1,0 +1,7 @@
+.o_school_prediction_years .o_list_table {
+    min-width: 640px;
+}
+
+.o_school_prediction_years .o_list_renderer {
+    overflow-x: auto;
+}
