@@ -11,95 +11,203 @@
         <field name="print_report_name">'Financial Summary - %s' % (object.academic_year_name or 'Academic Year')</field>
     </record>
 
+    <template id="report_school_financial_summary_money">
+        <t t-set="flow" t-value="o._get_report_money(amount, outflow=outflow)"/>
+        <span t-att-style="'color: %s;' % flow['color']" t-out="flow['amount']" t-options="{'widget': 'monetary', 'display_currency': report_currency}"/>
+    </template>
+
     <template id="report_school_financial_summary_pdf">
         <t t-call="web.html_container">
+            <style>
+                .school-financial-report { color: #17324d; font-size: 10px; }
+                .school-report-brand { border-bottom: 3px solid #167c80; margin-bottom: 20px; padding: 0 0 12px; }
+                .school-report-brand img { max-height: 48px; max-width: 90px; object-fit: contain; }
+                .school-report-title { color: #17324d; font-size: 23px; font-weight: 700; margin: 0; }
+                .school-report-subtitle { color: #607487; font-size: 10px; margin-top: 5px; }
+                .school-report-meta { background: #f4f7fa; border-radius: 4px; margin-bottom: 18px; padding: 10px 12px; }
+                .school-report-warning { background: #fff3cd; border-left: 4px solid #d39e00; border-radius: 3px; color: #705400; margin: 0 0 16px; padding: 9px 12px; }
+                .school-report-kpis { margin: 0 0 16px; }
+                .school-report-kpi { background: #f4f7fa; border-left: 3px solid #167c80; border-radius: 3px; min-height: 66px; padding: 9px 12px; }
+                .school-report-kpi-label { color: #607487; font-size: 9px; font-weight: 700; margin-bottom: 5px; text-transform: uppercase; }
+                .school-report-kpi-value { font-size: 16px; font-weight: 700; white-space: nowrap; }
+                .school-report-section { background: #17324d; border-radius: 3px; color: #fff; font-size: 12px; font-weight: 700; margin: 16px 0 6px; padding: 6px 9px; }
+                .school-financial-report table { border-collapse: collapse; margin-bottom: 12px; width: 100%; }
+                .school-financial-report thead { display: table-header-group; }
+                .school-financial-report th { background: #eaf0f4; color: #17324d; font-weight: 700; }
+                .school-financial-report th, .school-financial-report td { border-bottom: 1px solid #dce5ec; padding: 5px 7px; vertical-align: middle; }
+                .school-financial-report tbody tr:nth-child(even) { background: #f7f9fb; }
+                .school-report-footer { border-top: 1px solid #dce5ec; color: #607487; font-size: 9px; padding-top: 5px; }
+            </style>
             <t t-foreach="docs" t-as="o">
                 <t t-call="web.basic_layout">
-                    <div class="page">
-                        <h2>Financial Summary</h2>
-                        <div class="mb-3">
-                            <strong>School:</strong>
-                            <span t-field="o.school_id"/>
-                            <br/>
-                            <strong>Academic Year:</strong>
-                            <span t-field="o.academic_year_name"/>
-                            <br/>
-                            <strong>Dataset:</strong>
-                            <span t-field="o.dataset_type"/>
-                            <br/>
+                    <t t-set="report_currency" t-value="o.school_id.currency_id or o.env.company.currency_id"/>
+                    <t t-set="school" t-value="o.school_id"/>
+                    <div class="page school-financial-report">
+                        <div class="school-report-brand row align-items-center">
+                            <div class="col-2 text-start">
+                                <img t-if="school.report_school_logo" alt="School logo" t-att-src="school.get_report_logo_data_uri('report_school_logo')"/>
+                            </div>
+                            <div class="col-8 text-center">
+                                <h2 class="school-report-title" t-esc="school.report_title or 'Financial Summary'"/>
+                                <div class="school-report-subtitle">
+                                    <span t-field="school.name"/>
+                                    <span> · </span>
+                                    <span t-field="o.academic_year_name"/>
+                                </div>
+                            </div>
+                            <div class="col-2 text-end">
+                                <img t-if="school.report_company_logo" alt="Company logo" t-att-src="school.get_report_logo_data_uri('report_company_logo')"/>
+                            </div>
+                        </div>
+                        <div class="school-report-meta">
+                            <strong>Dataset:</strong> <span t-field="o.dataset_type"/>
+                            <span class="mx-2">|</span>
                             <strong>Period:</strong>
-                            <span t-field="o.start_date"/>
-                            <span> - </span>
-                            <span t-field="o.end_date"/>
+                            <span t-field="o.start_date"/> - <span t-field="o.end_date"/>
+                        </div>
+                        <div t-if="o.dataset_type == 'actual' and o.actual_status != 'complete'" class="school-report-warning">
+                            <strong>Actuals are still in progress.</strong>
+                            These figures are provisional; unentered sections may show zero.
+                        </div>
+                        <div class="school-report-subtitle mb-2">
+                            Green: inflow / surplus | Red (-): outflow / deficit | Zero: neutral
                         </div>
 
-                        <table class="table table-sm table-bordered" style="width:100%;">
+                        <div class="row g-2 school-report-kpis">
+                            <div class="col-4">
+                                <div class="school-report-kpi">
+                                    <div class="school-report-kpi-label">Gross Revenue</div>
+                                    <div class="school-report-kpi-value">
+                                        <t t-call="school_planning.report_school_financial_summary_money">
+                                            <t t-set="amount" t-value="o.fee_gross_total"/>
+                                            <t t-set="outflow" t-value="False"/>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="school-report-kpi">
+                                    <div class="school-report-kpi-label">Operating Costs</div>
+                                    <div class="school-report-kpi-value">
+                                        <t t-call="school_planning.report_school_financial_summary_money">
+                                            <t t-set="amount" t-value="o.operating_cost_total"/>
+                                            <t t-set="outflow" t-value="True"/>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="school-report-kpi">
+                                    <div class="school-report-kpi-label">Net Budget</div>
+                                    <div class="school-report-kpi-value">
+                                        <t t-call="school_planning.report_school_financial_summary_money">
+                                            <t t-set="amount" t-value="o.net_budget"/>
+                                            <t t-set="outflow" t-value="False"/>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="school-report-section">Core Financial Metrics</div>
+                        <table>
                             <thead>
                                 <tr>
                                     <th>Metric</th>
-                                    <th class="text-end">Value</th>
+                                    <th class="text-end" style="width:35%;">Value</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr><td>Gross Revenue</td><td class="text-end"><span t-field="o.fee_gross_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Tax Deductions</td><td class="text-end"><span t-field="o.tax_deductions_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Net Revenue After Tax</td><td class="text-end"><span t-field="o.fee_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Operating Expenses</td><td class="text-end"><span t-field="o.expense_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Salaries</td><td class="text-end"><span t-field="o.salary_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>New Rooms Equipment Expense</td><td class="text-end"><span t-field="o.new_rooms_expense_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Operating Cost Total</td><td class="text-end"><span t-field="o.operating_cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Startup Cost Total</td><td class="text-end"><span t-field="o.startup_cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Total Deductions</td><td class="text-end"><span t-field="o.total_deductions" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Operating Profit</td><td class="text-end"><span t-field="o.operating_profit" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Net Budget</td><td class="text-end"><span t-field="o.net_budget" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Net Margin %</td><td class="text-end"><span t-field="o.net_margin_pct"/>%</td></tr>
+                                <tr t-foreach="[
+                                    ('Gross Revenue', o.fee_gross_total, False),
+                                    ('Tax Deductions', o.tax_deductions_total, True),
+                                    ('Net Revenue After Tax', o.fee_total, False),
+                                    ('Operating Expenses', o.expense_total, True),
+                                    ('Salaries', o.salary_total, True),
+                                    ('New Rooms Equipment Expense', o.new_rooms_expense_total, True),
+                                    ('Operating Cost Total', o.operating_cost_total, True),
+                                    ('Startup Cost Total', o.startup_cost_total, True),
+                                    ('Total Deductions', o.total_deductions, True),
+                                    ('Operating Profit', o.operating_profit, False),
+                                    ('Net Budget', o.net_budget, False),
+                                ]" t-as="metric">
+                                    <td t-out="metric[0]"/>
+                                    <td class="text-end">
+                                        <t t-call="school_planning.report_school_financial_summary_money">
+                                            <t t-set="amount" t-value="metric[1]"/>
+                                            <t t-set="outflow" t-value="metric[2]"/>
+                                        </t>
+                                    </td>
+                                </tr>
+                                <tr><td>Net Margin %</td><td class="text-end" t-att-style="'color: %s;' % ('#b42318' if o.net_margin_pct &lt; 0 else '#187044' if o.net_margin_pct &gt; 0 else '#607487')"><span t-field="o.net_margin_pct"/>%</td></tr>
                             </tbody>
                         </table>
 
-                        <h4 class="mt-4">Enrollment and Unit Economics</h4>
-                        <table class="table table-sm table-bordered" style="width:100%;">
+                        <div class="school-report-section">Enrollment and Unit Economics</div>
+                        <table>
                             <thead>
                                 <tr>
                                     <th>Metric</th>
-                                    <th class="text-end">Value</th>
+                                    <th class="text-end" style="width:35%;">Value</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr><td>Total Enrolled Students</td><td class="text-end"><span t-field="o.total_enrolled_students"/></td></tr>
-                                <tr><td>Average Revenue Per Student</td><td class="text-end"><span t-field="o.revenue_per_student_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Average Cost Per Student</td><td class="text-end"><span t-field="o.cost_per_student_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Revenue Per Student by Grade Level (Avg)</td><td class="text-end"><span t-field="o.revenue_per_student_grade_level_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Cost Per Student by Grade Level (Avg)</td><td class="text-end"><span t-field="o.cost_per_student_grade_level_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Revenue Per Student by Grade Group (Avg)</td><td class="text-end"><span t-field="o.revenue_per_student_grade_group_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
-                                <tr><td>Cost Per Student by Grade Group (Avg)</td><td class="text-end"><span t-field="o.cost_per_student_grade_group_avg" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td></tr>
+                                <tr t-foreach="[
+                                    ('Average Revenue Per Student', o.revenue_per_student_avg, False),
+                                    ('Average Cost Per Student', o.cost_per_student_avg, True),
+                                    ('Revenue Per Student by Grade Level (Avg)', o.revenue_per_student_grade_level_avg, False),
+                                    ('Cost Per Student by Grade Level (Avg)', o.cost_per_student_grade_level_avg, True),
+                                    ('Revenue Per Student by Grade Group (Avg)', o.revenue_per_student_grade_group_avg, False),
+                                    ('Cost Per Student by Grade Group (Avg)', o.cost_per_student_grade_group_avg, True),
+                                ]" t-as="metric">
+                                    <td t-out="metric[0]"/>
+                                    <td class="text-end">
+                                        <t t-call="school_planning.report_school_financial_summary_money">
+                                            <t t-set="amount" t-value="metric[1]"/>
+                                            <t t-set="outflow" t-value="metric[2]"/>
+                                        </t>
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
 
-                        <h4 class="mt-4">Revenue and Cost by Grade Level</h4>
-                        <table class="table table-sm table-bordered" style="width:100%;">
-                            <thead>
-                                <tr>
-                                    <th>Grade Group</th>
-                                    <th>Grade Level</th>
-                                    <th class="text-end">Students</th>
-                                    <th class="text-end">Revenue</th>
-                                    <th class="text-end">Revenue / Student</th>
-                                    <th class="text-end">Cost</th>
-                                    <th class="text-end">Cost / Student</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.enrollment_ids" t-as="line">
-                                    <td><span t-field="line.grade_group_id"/></td>
-                                    <td><span t-field="line.grade_level_id"/></td>
-                                    <td class="text-end"><span t-field="line.student_count"/></td>
-                                    <td class="text-end"><span t-field="line.revenue_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
-                                    <td class="text-end"><span t-field="line.revenue_per_student" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
-                                    <td class="text-end"><span t-field="line.cost_total" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
-                                    <td class="text-end"><span t-field="line.cost_per_student" t-options="{'widget': 'monetary', 'display_currency': o.school_id.currency}"/></td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <t t-if="school.report_show_grade_details">
+                            <div class="school-report-section">Revenue and Cost by Grade Level</div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Grade Group</th>
+                                        <th>Grade Level</th>
+                                        <th class="text-end">Students</th>
+                                        <th class="text-end">Revenue</th>
+                                        <th class="text-end">Revenue / Student</th>
+                                        <th class="text-end">Cost</th>
+                                        <th class="text-end">Cost / Student</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="o.enrollment_ids" t-as="line">
+                                        <td><span t-field="line.grade_group_id"/></td>
+                                        <td><span t-field="line.grade_level_id"/></td>
+                                        <td class="text-end"><span t-field="line.student_count"/></td>
+                                        <td class="text-end" t-foreach="[
+                                            (line.revenue_total, False), (line.revenue_per_student, False),
+                                            (line.cost_total, True), (line.cost_per_student, True),
+                                        ]" t-as="metric">
+                                            <t t-call="school_planning.report_school_financial_summary_money">
+                                                <t t-set="amount" t-value="metric[0]"/>
+                                                <t t-set="outflow" t-value="metric[1]"/>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+                    </div>
+                    <div class="footer school-report-footer">
+                        <span t-esc="school.report_footer or 'School financial planning'"/>
+                        <span class="float-end">Page <span class="page"/> </span>
                     </div>
                 </t>
             </t>

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="school_planning.Dashboard">
+        <div class="o_school_dashboard" t-att-aria-busy="state.busy ? 'true' : 'false'">
+            <div class="sp-dashboard-shell">
+                <header class="sp-dashboard-header">
+                    <div>
+                        <div class="sp-eyebrow">SCHOOL BUDGETING / INSIGHTS</div>
+                        <h1>Your school, at a glance.</h1>
+                        <p>A clear view of your finances. A confident plan for what comes next.</p>
+                    </div>
+                    <div class="sp-dashboard-actions">
+                        <button class="btn btn-light" t-on-click="openSchools"><i class="fa fa-building-o me-2" aria-hidden="true"/>Schools</button>
+                        <button class="btn btn-primary" t-on-click="predict" t-att-disabled="state.busy"><i class="fa fa-plus me-2" aria-hidden="true"/>New prediction</button>
+                    </div>
+                </header>
+
+                <section class="sp-filter-bar" aria-label="Dashboard filters">
+                    <label>School
+                        <select class="form-select" t-on-change="(ev) => this.changeFilter('schoolId', ev)" t-att-disabled="state.busy">
+                            <option t-if="!state.data?.schools.length" value="">No schools yet</option>
+                            <option t-foreach="state.data?.schools || []" t-as="school" t-key="school.id" t-att-value="school.id" t-att-selected="state.schoolId === school.id"><t t-esc="school.name"/></option>
+                        </select>
+                    </label>
+                    <label>Dataset
+                        <select class="form-select" t-on-change="(ev) => this.changeFilter('dataset', ev)" t-att-disabled="state.busy">
+                            <option value="forecast" t-att-selected="state.dataset === 'forecast'">Forecast</option>
+                            <option value="actual" t-att-selected="state.dataset === 'actual'">Actual</option>
+                            <option value="legacy" t-att-selected="state.dataset === 'legacy'">Unclassified</option>
+                        </select>
+                    </label>
+                    <label>Academic year
+                        <select class="form-select" t-on-change="(ev) => this.changeFilter('yearId', ev)" t-att-disabled="state.busy">
+                            <option value="" t-att-selected="!state.yearId">All years</option>
+                            <option t-foreach="state.data?.years || []" t-as="year" t-key="year.id" t-att-value="year.id" t-att-selected="state.yearId === year.id"><t t-esc="year.name"/></option>
+                        </select>
+                    </label>
+                    <button class="btn btn-light sp-refresh" t-on-click="load" t-att-disabled="state.busy"><i class="fa fa-refresh me-2" aria-hidden="true"/>Refresh</button>
+                </section>
+
+                <div t-if="state.error" class="alert alert-danger mt-3" role="alert">
+                    <strong>Dashboard unavailable.</strong> <t t-esc="state.error"/>
+                    <button class="btn btn-link" t-on-click="load">Try again</button>
+                </div>
+                <div t-elif="state.busy" class="sp-dashboard-empty" role="status"><i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"/><p>Loading your latest figures…</p></div>
+                <t t-elif="state.data">
+                    <div class="sp-dashboard-tabs" role="tablist" aria-label="Insights view">
+                        <button id="sp-overview-tab" role="tab" aria-controls="sp-insights-panel" t-att-aria-selected="state.tab === 'overview' ? 'true' : 'false'" t-att-class="state.tab === 'overview' ? 'active' : ''" t-on-click="() => state.tab = 'overview'"><i class="fa fa-th-large me-2" aria-hidden="true"/>Overview</button>
+                        <button id="sp-report-tab" role="tab" aria-controls="sp-insights-panel" t-att-aria-selected="state.tab === 'report' ? 'true' : 'false'" t-att-class="state.tab === 'report' ? 'active' : ''" t-on-click="() => state.tab = 'report'"><i class="fa fa-table me-2" aria-hidden="true"/>Dynamic report</button>
+                        <span class="sp-data-note"><i class="fa fa-circle me-1" aria-hidden="true"/>Live calculations · <t t-esc="state.data.currency"/></span>
+                    </div>
+
+                    <div t-if="!state.data.rows.length" class="sp-dashboard-empty">
+                        <span class="sp-empty-icon"><i class="fa fa-bar-chart" aria-hidden="true"/></span>
+                        <h2 t-if="!state.data.schools.length">A clear plan starts with your school</h2>
+                        <h2 t-else="">No years in this dataset yet</h2>
+                        <p t-if="!state.data.schools.length">Add your school, configure its subjects, then create your first prediction.</p>
+                        <p t-elif="state.dataset === 'actual'">Open a forecast year and choose Enter Actuals to start recording real results.</p>
+                        <p t-else="">Choose another dataset or create a prediction to see your figures here.</p>
+                        <button class="btn btn-primary" t-on-click="openSchools">Go to schools</button>
+                    </div>
+                    <section t-else="" id="sp-insights-panel" role="tabpanel" t-att-aria-labelledby="state.tab === 'overview' ? 'sp-overview-tab' : 'sp-report-tab'">
+                        <div t-if="provisional" class="alert alert-warning mt-3" role="status"><i class="fa fa-info-circle me-2" aria-hidden="true"/>Actuals are still in progress. These figures are provisional; unentered sections may show zero.</div>
+                        <div class="sp-period-context">
+                            <span><strong t-esc="state.data.rows.length"/> <t t-if="state.data.rows.length === 1">academic year</t><t t-else="">academic years</t> · Financial totals cover the selected period. Students reflect the latest selected year.</span>
+                            <div class="sp-dashboard-actions">
+                                <button class="btn btn-sm btn-light" t-on-click="openSchool"><i class="fa fa-sliders me-2" aria-hidden="true"/>Report branding</button>
+                                <button class="btn btn-sm btn-light" t-on-click="exportPdf" t-att-disabled="state.tab === 'report' and !reportRows.length"><i class="fa fa-file-pdf-o me-2" aria-hidden="true"/>Export PDF</button>
+                            </div>
+                        </div>
+                        <div class="sp-kpi-grid">
+                            <article t-foreach="kpis" t-as="kpi" t-key="kpi.label" t-att-class="'sp-kpi' + (kpi.negative ? ' sp-kpi-negative' : '')">
+                                <div class="sp-kpi-label"><t t-esc="kpi.label"/><i t-att-class="'fa ' + kpi.icon" aria-hidden="true"/></div>
+                                <div class="sp-kpi-value" t-esc="kpi.value"/>
+                                <div class="sp-kpi-detail" t-esc="kpi.detail"/>
+                            </article>
+                        </div>
+
+                        <t t-if="state.tab === 'overview'">
+                            <div t-if="state.chartPreferencesChanged or state.canSaveChartPreferences" class="sp-chart-preferences" t-att-role="state.chartPreferencesChanged ? 'status' : false">
+                                <span t-if="state.canSaveChartPreferences">Chart defaults apply to everyone at this school.</span>
+                                <span t-else="">Chart changes affect only your view. An administrator can save school-wide defaults.</span>
+                                <div t-if="state.canSaveChartPreferences" class="sp-dashboard-actions">
+                                    <button class="btn btn-sm btn-light" t-on-click="() => this.saveChartPreferences(true)">Restore school defaults</button>
+                                    <button class="btn btn-sm btn-primary" t-on-click="() => this.saveChartPreferences()" t-att-disabled="!state.chartPreferencesChanged">Save for school</button>
+                                </div>
+                            </div>
+                            <div class="sp-chart-grid">
+                                <article class="sp-dashboard-card sp-finance-card">
+                                    <div class="sp-card-heading sp-chart-heading">
+                                        <div><h2>Trend</h2><p>Follow a measure across academic years · <t t-if="trendMetric.unit === 'money'" t-esc="state.data.currency"/><t t-elif="trendMetric.unit === 'percent'">%</t><t t-else="">count</t></p></div>
+                                        <div class="sp-chart-controls">
+                                            <label><span class="visually-hidden">Trend metric</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('trend_metric', ev)"><option t-foreach="state.data.trend_metrics" t-as="metric" t-key="metric.key" t-att-value="metric.key" t-att-selected="state.chartConfig.trend_metric === metric.key" t-esc="metric.label"/></select></label>
+                                            <label><span class="visually-hidden">Trend chart style</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('trend_type', ev)"><option value="line" t-att-selected="state.chartConfig.trend_type === 'line'">Line</option><option value="bar" t-att-selected="state.chartConfig.trend_type === 'bar'">Bar</option></select></label>
+                                        </div>
+                                    </div>
+                                    <div t-if="state.data.rows.length" class="sp-chart-container"><canvas t-ref="trend" role="img" t-att-aria-label="'Trend chart: ' + trendMetric.label + ' by academic year. Exact figures are in the table below.'"/></div>
+                                    <p t-else="" class="sp-chart-empty">No academic years match these filters.</p>
+                                    <details class="sp-chart-details">
+                                        <summary>View figures and open a year</summary>
+                                        <div class="sp-table-scroll"><table class="sp-report-table"><thead><tr><th>Academic year</th><th t-esc="trendMetric.label"/></tr></thead><tbody><tr t-foreach="state.data.rows" t-as="row" t-key="row.id"><td><button class="btn btn-link p-0" t-on-click="() => this.openYear(row.id)" t-esc="row.name"/></td><td t-esc="chartValue(row[state.chartConfig.trend_metric], trendMetric.unit)"/></tr></tbody></table></div>
+                                    </details>
+                                </article>
+                                <article class="sp-dashboard-card">
+                                    <div class="sp-card-heading sp-chart-heading">
+                                        <div><h2>Breakdown</h2><p>Selected period · counts sum across academic years · <t t-if="breakdownMetric.unit === 'money'" t-esc="state.data.currency"/><t t-else="">count</t></p></div>
+                                        <div class="sp-chart-controls">
+                                            <label><span class="visually-hidden">Breakdown metric</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('breakdown_metric', ev)"><option t-foreach="state.data.breakdown_metrics" t-as="metric" t-key="metric.key" t-att-value="metric.key" t-att-selected="state.chartConfig.breakdown_metric === metric.key" t-esc="metric.label"/></select></label>
+                                            <label><span class="visually-hidden">Breakdown chart style</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('breakdown_type', ev)"><option value="doughnut" t-att-selected="state.chartConfig.breakdown_type === 'doughnut'">Doughnut</option><option value="bar" t-att-selected="state.chartConfig.breakdown_type === 'bar'">Bar</option></select></label>
+                                        </div>
+                                    </div>
+                                    <div t-if="hasBreakdownChart" class="sp-cost-chart"><canvas t-ref="breakdown" role="img" t-att-aria-label="'Breakdown chart: ' + breakdownMetric.label + '. Exact figures are listed below.'"/></div>
+                                    <p t-elif="breakdownRows.length" class="sp-chart-empty">Doughnuts need non-negative values and a positive total. Choose bars to see zero or negative adjustments.</p>
+                                    <p t-else="" class="sp-chart-empty">No data is available for this breakdown yet.</p>
+                                    <ul class="sp-cost-legend"><li t-foreach="breakdownRows" t-as="item" t-key="item.label"><span t-esc="item.label"/><strong t-esc="chartValue(item.value, breakdownMetric.unit)"/></li></ul>
+                                </article>
+                                <article class="sp-dashboard-card sp-comparison-card">
+                                    <div class="sp-card-heading sp-chart-heading">
+                                        <div><h2>Forecast vs Actual</h2><p>Compare a forecast with its linked Actual year</p></div>
+                                        <div class="sp-chart-controls">
+                                            <label><span class="visually-hidden">Comparison metric</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('comparison_metric', ev)"><option t-foreach="state.data.trend_metrics" t-as="metric" t-key="metric.key" t-att-value="metric.key" t-att-selected="state.chartConfig.comparison_metric === metric.key" t-esc="metric.label"/></select></label>
+                                            <label><span class="visually-hidden">Forecast year</span><select class="form-select form-select-sm" t-on-change="selectComparisonYear"><option t-foreach="state.data.comparisons" t-as="year" t-key="year.id" t-att-value="year.id" t-att-selected="state.comparisonYearId === year.id" t-esc="year.name"/></select></label>
+                                        </div>
+                                    </div>
+                                    <div t-if="selectedComparison" class="sp-chart-container sp-chart-short"><canvas t-ref="comparison" role="img" t-att-aria-label="'Forecast versus Actual: ' + comparisonMetric.label + ' for ' + selectedComparison.name + '.'"/></div>
+                                    <p t-else="" class="sp-chart-empty">Create a forecast year to compare forecast and Actual values.</p>
+                                    <div t-if="selectedComparison" class="sp-comparison-summary">
+                                        <span class="sp-subtle-badge" t-esc="selectedComparison.approved ? 'Approved baseline' : 'Draft forecast'"/>
+                                        <span t-att-class="selectedComparison.actual_provisional ? 'sp-comparison-provisional' : ''" t-esc="comparisonStatus"/>
+                                    </div>
+                                    <div t-if="selectedComparison" class="sp-table-scroll">
+                                        <table class="sp-report-table"><thead><tr><th>Measure</th><th>Forecast</th><th>Actual</th><th>Variance</th></tr></thead><tbody>
+                                            <tr><td t-esc="comparisonMetric.label"/><td t-esc="chartValue(selectedComparison.forecast[state.chartConfig.comparison_metric], comparisonMetric.unit)"/><td t-esc="chartValue(comparisonActualValue, comparisonMetric.unit)"/><td t-esc="chartValue(comparisonDifference, comparisonMetric.unit)"/></tr>
+                                        </tbody></table>
+                                    </div>
+                                </article>
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <article class="sp-dashboard-card sp-dynamic-report">
+                                <div class="sp-card-heading">
+                                    <div><h2>Financial performance</h2><p>Choose your columns. Select a year to explore its inputs.</p></div>
+                                    <button class="btn btn-primary btn-sm" t-on-click="exportCsv" t-att-disabled="!reportRows.length"><i class="fa fa-download me-2" aria-hidden="true"/>Export CSV</button>
+                                </div>
+                                <div class="sp-report-tools">
+                                    <label class="sp-report-search"><span class="visually-hidden">Search academic years</span><input type="search" class="form-control" placeholder="Search academic years…" t-model="state.search"/></label>
+                                    <details class="sp-column-picker"><summary>Choose columns</summary><div><label t-foreach="columns" t-as="column" t-key="column.key"><input type="checkbox" t-att-checked="state.columns.includes(column.key)" t-on-change="() => this.toggleColumn(column.key)"/><t t-esc="column.label"/></label></div></details>
+                                </div>
+                                <div class="sp-table-scroll" tabindex="0" role="region" aria-label="Financial performance table">
+                                    <table class="sp-report-table">
+                                        <caption class="visually-hidden">Live financial figures in <t t-esc="state.data.currency"/>. Margin is net budget divided by gross revenue.</caption>
+                                        <thead><tr><th t-att-aria-sort="sortDirection('name')"><button t-on-click="() => this.sortBy('name')">Academic year ↕</button></th><th>Status</th><th t-foreach="visibleColumns" t-as="column" t-key="column.key" t-att-aria-sort="sortDirection(column.key)"><button t-on-click="() => this.sortBy(column.key)"><t t-esc="column.label"/> ↕</button></th></tr></thead>
+                                        <tbody>
+                                            <tr t-foreach="reportRows" t-as="row" t-key="row.id"><td><button class="btn btn-link p-0 fw-bold" t-on-click="() => this.openYear(row.id)" t-esc="row.name"/></td><td><span class="sp-subtle-badge" t-esc="statusLabel(row.status)"/></td><td t-foreach="visibleColumns" t-as="column" t-key="column.key" t-att-class="row[column.key] &lt; 0 ? 'sp-negative' : ''" t-esc="cell(row, column)"/></tr>
+                                            <tr t-if="!reportRows.length"><td t-att-colspan="visibleColumns.length + 2" class="text-center p-4">No academic years match your search.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p class="sp-report-footnote">Net budget = revenue after tax − operating costs − startup investment. PDF includes the matching years with full report detail; column selection applies to this table and CSV.</p>
+                            </article>
+                            <article class="sp-dashboard-card mt-4">
+                                <div class="sp-card-heading"><div><h2>Enrollment &amp; unit economics</h2><p>Selected period · students are student-years when multiple years are selected. Grade costs follow the existing allocation model, including tax deductions.</p></div></div>
+                                <div class="sp-table-scroll" tabindex="0" role="region" aria-label="Grade economics table">
+                                    <table class="sp-report-table"><thead><tr><th>Grade group</th><th>Grade</th><th>Students / student-years</th><th>Net revenue</th><th>Revenue / student</th><th>Allocated cost / student</th></tr></thead><tbody><tr t-foreach="state.data.grades" t-as="grade" t-key="grade.id"><td t-esc="grade.group"/><td t-esc="grade.name"/><td t-esc="number(grade.students)"/><td t-esc="amount(grade.revenue)"/><td t-esc="amount(grade.students ? grade.revenue / grade.students : 0)"/><td t-esc="amount(grade.students ? grade.cost / grade.students : 0)"/></tr><tr t-if="!state.data.grades.length"><td colspan="6" class="text-center p-4">No grade enrollment has been entered.</td></tr></tbody></table>
+                                </div>
+                            </article>
+                        </t>
+                    </section>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

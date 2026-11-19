@@ -1,9 +1,6 @@
 import base64
-import io
 import math
 import shutil
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
 from odoo.tools.safe_eval import safe_eval
@@ -135,23 +132,6 @@ class SchoolSchools(models.Model):
             for seed in configuration.tax_ids:
                 if not school.tax_rule_ids.filtered(lambda tax: tax.name.strip().casefold() == seed.name.strip().casefold()):
                     self.env['school.tax.rules'].create({'school_id': school.id, 'name': seed.name, 'percentage': seed.percentage})
-
-    def _ensure_expense_seeds(self):
-        configuration = self.env.ref('school_planning.prediction_seed_configuration', raise_if_not_found=False)
-        if not configuration:
-            return
-        for school in self:
-            for seed in configuration.expense_ids:
-                category = self.env['school.expense.categories'].search([
-                    ('school_id', '=', school.id), ('name', '=ilike', seed.name.strip())], limit=1)
-                if not category:
-                    category = self.env['school.expense.categories'].create({
-                        'school_id': school.id, 'name': seed.name, 'display_order': seed.display_order,
-                        'cost_bucket': seed.cost_bucket, 'prediction_seed_id': seed.id})
-                for item_seed in seed.item_ids:
-                    if not category.expense_item_ids.filtered(lambda item: item.name.strip().casefold() == item_seed.name.strip().casefold()):
-                        self.env['school.expense.items'].create({'school_id': school.id, 'expense_category_id': category.id,
-                            'name': item_seed.name, 'display_order': item_seed.display_order})
 
     def write(self, values):
         return super().write(self._catalog_selection_values(values))
@@ -326,14 +306,15 @@ class SchoolSubjectPreset(models.Model):
     _order = 'curriculum_id asc, display_order asc, id asc'
 
     name = fields.Char(required=True)
-    category = fields.Char(required=True)
+    category = fields.Char()
+    active = fields.Boolean(default=True)
     curriculum_id = fields.Many2one(
         'school.curriculum.preset',
         string='Curriculum',
         required=True,
         ondelete='cascade',
     )
-    display_order = fields.Integer(required=True)
+    display_order = fields.Integer(required=True, default=10)
 
 
 class SchoolSubjectSetupWizard(models.TransientModel):
@@ -370,6 +351,8 @@ class SchoolSubjectSetupWizard(models.TransientModel):
         'school.subject.preset',
         string='Subjects',
         required=True,
+        help='Select American Curriculum subjects manually. Other curricula preselect all available subjects. '
+             'Administrators can edit the shared list in Setup > Academic Setup > Curriculum Subject Catalog.',
     )
 
     @api.onchange('curriculum_id')
@@ -378,9 +361,11 @@ class SchoolSubjectSetupWizard(models.TransientModel):
 
     def action_apply(self):
         self.ensure_one()
-        selected_subjects = self.subject_preset_ids.filtered(
+        selected_subjects = self.with_context(active_test=False).subject_preset_ids.filtered(
             lambda preset: preset.curriculum_id == self.curriculum_id
         ).sorted('display_order')
+        if selected_subjects.filtered(lambda preset: not preset.active):
+            raise ValidationError(self.env._('An archived subject is still selected. Remove it before adding subjects.'))
 
         created_count = 0
         for preset in selected_subjects:
@@ -1443,23 +1428,6 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         scenario = self.env['school.prediction.scenario.preset'].search([('code', '=', 'base')], limit=1)
         return scenario or self.env['school.prediction.scenario.preset'].search([], order='display_order asc, id asc', limit=1)
 
-    def _ensure_income_tax_rule(self):
-        self.ensure_one()
-        normalized_percentage = max(float(self.income_tax_percent or 0.0), 0.0) / 100.0
-        tax_name = f'Income Tax {float(self.income_tax_percent or 0.0):g}%'
-        tax_rule = self.env['school.tax.rules'].search([
-            ('school_id', '=', self.school_id.id),
-            ('name', '=', tax_name),
-            ('percentage', '=', normalized_percentage),
-        ], limit=1)
-        if not tax_rule:
-            tax_rule = self.env['school.tax.rules'].create({
-                'school_id': self.school_id.id,
-                'name': tax_name,
-                'percentage': normalized_percentage,
-            })
-        return tax_rule
-
     def _ensure_grade_structure(self):
         self.ensure_one()
         school = self.school_id
@@ -2316,121 +2284,6 @@ class SchoolAcademicYears(models.Model):
                 'default_subject': 'Financial Summary Report',
             },
         }
-
-    def _build_financial_summary_pdf_bytes(self):
-        years = self.sorted(key=lambda y: (y.start_date or '', y.academic_year_name or '', y.id))
-        buffer = io.BytesIO()
-        pdf = canvas.Canvas(buffer, pagesize=A4)
-        page_width, page_height = A4
-
-        for year_idx, year in enumerate(years):
-            y = page_height - 50
-
-            def draw_line(label, value):
-                nonlocal y
-                pdf.setFont('Helvetica-Bold', 10)
-                pdf.drawString(40, y, label)
-                pdf.setFont('Helvetica', 10)
-                pdf.drawRightString(page_width - 40, y, value)
-                y -= 16
-
-            def fmt_money(amount, currency):
-                return f"{currency} {float(amount or 0.0):,.2f}"
-
-            school_name = year.school_id.name or '-'
-            currency = year.school_id.currency or ''
-
-            pdf.setFont('Helvetica-Bold', 16)
-            pdf.drawString(40, y, 'Financial Summary')
-            y -= 24
-
-            pdf.setFont('Helvetica', 11)
-            pdf.drawString(40, y, f'School: {school_name}')
-            y -= 16
-            pdf.drawString(40, y, f'Academic Year: {year.display_name}')
-            y -= 16
-            pdf.drawString(40, y, f'Period: {year.start_date or "-"} - {year.end_date or "-"}')
-            y -= 24
-
-            pdf.setFont('Helvetica-Bold', 12)
-            pdf.drawString(40, y, 'Core Financial Metrics')
-            y -= 18
-
-            draw_line('Gross Revenue', fmt_money(year.fee_gross_total, currency))
-            draw_line('Tax Deductions', fmt_money(year.tax_deductions_total, currency))
-            draw_line('Net Revenue After Tax', fmt_money(year.fee_total, currency))
-            draw_line('Operating Expenses', fmt_money(year.expense_total, currency))
-            draw_line('Salaries', fmt_money(year.salary_total, currency))
-            draw_line('New Rooms Equipment Expense', fmt_money(year.new_rooms_expense_total, currency))
-            draw_line('Operating Cost Total', fmt_money(year.operating_cost_total, currency))
-            draw_line('Startup Cost Total', fmt_money(year.startup_cost_total, currency))
-            draw_line('Total Deductions', fmt_money(year.total_deductions, currency))
-            draw_line('Operating Profit', fmt_money(year.operating_profit, currency))
-            draw_line('Net Budget', fmt_money(year.net_budget, currency))
-            draw_line('Net Margin %', f"{float(year.net_margin_pct or 0.0):.2f}%")
-
-            y -= 8
-            pdf.setFont('Helvetica-Bold', 12)
-            pdf.drawString(40, y, 'Enrollment and Unit Economics')
-            y -= 18
-
-            draw_line('Total Enrolled Students', f"{int(year.total_enrolled_students or 0)}")
-            draw_line('Average Revenue Per Student', fmt_money(year.revenue_per_student_avg, currency))
-            draw_line('Average Cost Per Student', fmt_money(year.cost_per_student_avg, currency))
-            draw_line('Revenue Per Student by Grade Level (Avg)', fmt_money(year.revenue_per_student_grade_level_avg, currency))
-            draw_line('Cost Per Student by Grade Level (Avg)', fmt_money(year.cost_per_student_grade_level_avg, currency))
-            draw_line('Revenue Per Student by Grade Group (Avg)', fmt_money(year.revenue_per_student_grade_group_avg, currency))
-            draw_line('Cost Per Student by Grade Group (Avg)', fmt_money(year.cost_per_student_grade_group_avg, currency))
-
-            y -= 8
-            pdf.setFont('Helvetica-Bold', 12)
-            pdf.drawString(40, y, 'Revenue and Cost by Grade Level')
-            y -= 18
-
-            headers = ['Group', 'Level', 'Students', 'Revenue', 'Rev/Student', 'Cost', 'Cost/Student']
-            x_positions = [40, 130, 230, 300, 390, 470, 545]
-            pdf.setFont('Helvetica-Bold', 9)
-            for idx, header in enumerate(headers):
-                if idx >= 2:
-                    pdf.drawRightString(x_positions[idx], y, header)
-                else:
-                    pdf.drawString(x_positions[idx], y, header)
-            y -= 14
-
-            pdf.setFont('Helvetica', 8)
-            for line in year.enrollment_ids:
-                if y < 60:
-                    pdf.showPage()
-                    y = page_height - 50
-                    pdf.setFont('Helvetica-Bold', 10)
-                    pdf.drawString(40, y, f'Continued: {year.display_name}')
-                    y -= 18
-                    pdf.setFont('Helvetica-Bold', 9)
-                    for idx, header in enumerate(headers):
-                        if idx >= 2:
-                            pdf.drawRightString(x_positions[idx], y, header)
-                        else:
-                            pdf.drawString(x_positions[idx], y, header)
-                    y -= 14
-                    pdf.setFont('Helvetica', 8)
-
-                pdf.drawString(x_positions[0], y, line.grade_group_id.name or '')
-                pdf.drawString(x_positions[1], y, line.grade_level_id.name or '')
-                pdf.drawRightString(x_positions[2], y, str(int(line.student_count or 0)))
-                pdf.drawRightString(x_positions[3], y, f"{float(line.revenue_total or 0.0):,.2f}")
-                pdf.drawRightString(x_positions[4], y, f"{float(line.revenue_per_student or 0.0):,.2f}")
-                pdf.drawRightString(x_positions[5], y, f"{float(line.cost_total or 0.0):,.2f}")
-                pdf.drawRightString(x_positions[6], y, f"{float(line.cost_per_student or 0.0):,.2f}")
-                y -= 12
-
-            if year_idx < len(years) - 1:
-                pdf.showPage()
-
-        pdf.save()
-        data = buffer.getvalue()
-        buffer.close()
-        return data
-
 
 class SchoolFinancialSummaryEmailWizard(models.TransientModel):
     _name = 'school.financial.summary.email.wizard'

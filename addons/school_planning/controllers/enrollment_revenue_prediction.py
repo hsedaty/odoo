@@ -260,28 +260,6 @@ class SchoolPlanningEnrollmentRevenuePredictionController(http.Controller):
                     mapped[key] = fee_type
         return mapped
 
-    def _group_fee_amount(self, year_id, level_ids, fee_type, fee_amount_index, enrollment_by_level):
-        if not fee_type or not level_ids:
-            return 0.0
-
-        weighted_sum = 0.0
-        student_sum = 0
-        fallback_values = []
-        for level_id in level_ids:
-            amount = fee_amount_index.get((year_id, level_id, fee_type.id), 0.0)
-            students = int(enrollment_by_level.get((year_id, level_id), {}).get('students', 0))
-            if amount:
-                fallback_values.append(amount)
-            if students > 0:
-                weighted_sum += amount * students
-                student_sum += students
-
-        if student_sum > 0:
-            return weighted_sum / student_sum
-        if fallback_values:
-            return sum(fallback_values) / len(fallback_values)
-        return 0.0
-
     def _save_enrollment_group(self, env, year_id, level_ids, value_map):
         target_students = max(0, int(round(float(value_map.get('students') or 0))))
         target_classes = max(0, int(round(float(value_map.get('classes') or 0))))

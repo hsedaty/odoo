@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.36.0',
+    'version': '19.0.1.37.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """
@@ -12,6 +12,15 @@ School Budget & Planning System.
 - Financial Report (Reporting Band): Stored snapshot per academic year powering
   native pivot/graph analysis and Spreadsheet Dashboards (YoY growth, revenue,
   expense and profit charts).
+- Dashboard: live school/dataset/year filters, financial and enrollment charts,
+  sortable dynamic report with selectable columns and CSV/PDF export. Forecast
+  and Actual are kept separate; unfinished Actual figures are provisional.
+  Financial KPIs sum the selected period; Students shows its latest year.
+- Report branding: open a school's Report Branding settings to customize school
+  and company logos, title, footer and grade detail for PDF and emailed reports.
+  PDF amounts use green for inflows/surpluses, red negative amounts for outflows/
+  deficits, and neutral zeroes. Signs are presentation-only; calculations do not change.
+  The former development-only New UI URL now opens the integrated dashboard.
 """,
     'author': 'Abdullah Karakuyu',
     'depends': ['base', 'web', 'mail', 'google_gmail'],
@@ -30,7 +39,19 @@ School Budget & Planning System.
         'views/school_financial_report_views.xml',
         'views/forecast_actual_views.xml',
         'views/efficiency_views.xml',
+        'views/report_branding_views.xml',
+        'views/dashboard_views.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'school_planning/static/src/js/dashboard.js',
+            'school_planning/static/src/xml/dashboard.xml',
+            'school_planning/static/src/css/dashboard.css',
+        ],
+        'web.assets_unit_tests': [
+            'school_planning/static/tests/dashboard.test.js',
+        ],
+    },
     'installable': True,
     'application': True,
     'license': 'LGPL-3',

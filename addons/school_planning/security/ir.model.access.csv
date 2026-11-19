@@ -32,6 +32,7 @@ access_school_grade_level_preset,school.grade.level.preset,model_school_grade_le
 access_school_grade_setup_wizard,school.grade.setup.wizard,model_school_grade_setup_wizard,base.group_user,1,1,1,1
 access_school_curriculum_preset,school.curriculum.preset,model_school_curriculum_preset,base.group_user,1,0,0,0
 access_school_subject_preset,school.subject.preset,model_school_subject_preset,base.group_user,1,0,0,0
+access_school_subject_preset_admin,school.subject.preset.admin,model_school_subject_preset,base.group_system,1,1,1,1
 access_school_subject_setup_wizard,school.subject.setup.wizard,model_school_subject_setup_wizard,base.group_user,1,1,1,1
 access_school_prediction_scenario_preset,school.prediction.scenario.preset,model_school_prediction_scenario_preset,base.group_user,1,0,0,0
 access_school_prediction_quick_setup_wizard,school.prediction.quick.setup.wizard,model_school_prediction_quick_setup_wizard,base.group_user,1,1,1,1

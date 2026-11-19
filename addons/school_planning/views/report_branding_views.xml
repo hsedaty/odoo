@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_school_schools_form_report_branding" model="ir.ui.view">
+        <field name="name">school.schools.form.report.branding</field>
+        <field name="model">school.schools</field>
+        <field name="inherit_id" ref="school_planning.view_school_schools_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/field[@name='subject_ids']" position="after">
+                <notebook>
+                    <page string="Report Branding">
+                        <group>
+                            <group string="Branding">
+                                <field name="report_school_logo" widget="image" options="{'size': [128, 128]}"/>
+                                <field name="report_company_logo" widget="image" options="{'size': [128, 128]}"/>
+                                <field name="report_title" placeholder="Financial Summary"/>
+                            </group>
+                            <group string="Report Options">
+                                <field name="report_footer" placeholder="School financial planning"/>
+                                <field name="report_show_grade_details"/>
+                            </group>
+                        </group>
+                    </page>
+                </notebook>
+            </xpath>
+        </field>
+    </record>
+</odoo>

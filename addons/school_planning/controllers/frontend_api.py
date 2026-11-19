@@ -5,7 +5,7 @@ from odoo.http import request
 class SchoolPlanningFrontendApiController(http.Controller):
     @http.route('/school_planning/new-ui', type='http', auth='user', website=False)
     def school_planning_new_ui(self):
-        return request.render('school_planning.school_budgeting_frontend_page')
+        return request.redirect('/odoo/action-school_planning.action_school_dashboard')
 
     @http.route('/school_planning/api/bootstrap', type='jsonrpc', auth='user')
     def school_planning_bootstrap(self):

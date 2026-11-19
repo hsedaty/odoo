@@ -3,6 +3,7 @@
     <template id="enrollment_revenue_prediction_page" name="Enrollment and Revenue Prediction">
         <t t-call="web.layout">
             <div class="sp-page">
+                <a class="sp-back-link" href="/odoo/action-school_planning.action_school_dashboard">Back to dashboard</a>
                 <div class="sp-toolbar">
                     <h1 class="sp-title">Enrollment and Revenue Prediction</h1>
                     <div class="sp-toolbar-actions">
@@ -10,6 +11,7 @@
                         <button type="button" id="sp-add-year" class="btn btn-secondary">Add Academic Year</button>
                         <button type="button" id="sp-save" class="btn btn-primary">Save Changes</button>
                     </div>
+                    <p class="sp-page-help">Edit the white cells to update enrollment and fees. Calculated totals update automatically; save your changes before leaving.</p>
                 </div>
 
                 <div class="sp-status" id="sp-status" role="status" aria-live="polite"></div>

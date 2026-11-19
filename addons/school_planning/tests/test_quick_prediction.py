@@ -8,9 +8,9 @@ from types import SimpleNamespace
 from lxml import etree
 
 from odoo import fields
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import Form
-from odoo.tests.common import TransactionCase, tagged
+from odoo.tests.common import TransactionCase, new_test_user, tagged
 
 from ..models.forecast_actual import ACTUAL_TOOLS
 
@@ -42,6 +42,76 @@ class TestQuickPrediction(TransactionCase):
         return self.env['school.prediction.quick.setup.wizard'].create({
             'school_id': self.school.id, 'extreme_efficiency': extreme,
         })
+
+    def test_subject_setup_american_manual_selection(self):
+        existing_subjects = self.school.subject_ids
+        form = Form(self.env['school.subject.setup.wizard'].with_context(default_school_id=self.school.id))
+        form.curriculum_id = self.env.ref('school_planning.curriculum_us_standards')
+        self.assertFalse(form.subject_preset_ids)
+
+        selected_subject = self.env.ref('school_planning.subject_us_ela')
+        form.subject_preset_ids.add(selected_subject)
+        wizard = form.save()
+        self.assertEqual(self.school.subject_ids, existing_subjects)
+        wizard.action_apply()
+
+        self.assertEqual(existing_subjects.exists(), existing_subjects)
+        self.assertEqual((self.school.subject_ids - existing_subjects).mapped('name'), [selected_subject.name])
+
+    def test_subject_setup_other_curricula_auto_load(self):
+        form = Form(self.env['school.subject.setup.wizard'].with_context(default_school_id=self.school.id))
+        for xmlid in ('curriculum_england', 'curriculum_ib_pyp', 'curriculum_ib_myp', 'curriculum_ib_dp'):
+            with self.subTest(curriculum=xmlid):
+                curriculum = self.env.ref(f'school_planning.{xmlid}')
+                form.curriculum_id = curriculum
+                self.assertEqual(form.subject_preset_ids[:], curriculum.subject_preset_ids)
+
+    def test_subject_setup_curriculum_switching(self):
+        form = Form(self.env['school.subject.setup.wizard'].with_context(default_school_id=self.school.id))
+        cambridge = self.env.ref('school_planning.curriculum_england')
+        form.curriculum_id = cambridge
+        self.assertTrue(form.subject_preset_ids)
+
+        form.curriculum_id = self.env.ref('school_planning.curriculum_us_standards')
+        self.assertFalse(form.subject_preset_ids)
+        form.subject_preset_ids.add(self.env.ref('school_planning.subject_us_ela'))
+
+        form.curriculum_id = cambridge
+        self.assertEqual(form.subject_preset_ids[:], cambridge.subject_preset_ids)
+        form.curriculum_id = self.env['school.curriculum.preset']
+        self.assertFalse(form.subject_preset_ids)
+
+    def test_subject_catalog_edits_are_reusable(self):
+        env = self.env(context={**self.env.context, 'no_reset_password': True})
+        manager = new_test_user(env, login='curriculum_catalog_admin', groups='base.group_system')
+        planner = new_test_user(env, login='curriculum_catalog_planner', groups='base.group_user')
+        american = self.env.ref('school_planning.curriculum_us_standards')
+        catalog = self.env['school.subject.preset'].with_user(manager)
+        subject = catalog.create({'name': 'Arabic Language', 'curriculum_id': american.id})
+        subject.name = 'Arabic'
+        with self.assertRaises(AccessError):
+            subject.with_user(planner).name = 'Unauthorized edit'
+        with self.assertRaises(AccessError):
+            subject.with_user(planner).unlink()
+
+        model = self.env['school.subject.setup.wizard'].with_user(planner).with_context(default_school_id=self.school.id)
+        form = Form(model)
+        form.curriculum_id = american
+        self.assertFalse(form.subject_preset_ids)
+        form.subject_preset_ids.add(subject.with_user(planner))
+        wizard = form.save()
+        wizard.action_apply()
+        self.assertIn('Arabic', self.school.subject_ids.mapped('name'))
+
+        subject.action_archive()
+        self.assertNotIn(subject, american.subject_preset_ids)
+        self.assertIn('Arabic', self.school.subject_ids.mapped('name'))
+        with self.assertRaises(ValidationError):
+            wizard.action_apply()
+
+        subject.unlink()
+        self.assertFalse(subject.exists())
+        self.assertIn('Arabic', self.school.subject_ids.mapped('name'))
 
     def test_category_total_includes_items(self):
         category = self.env['school.expense.categories'].create({
