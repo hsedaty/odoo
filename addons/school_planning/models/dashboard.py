@@ -28,6 +28,7 @@ TREND_METRICS = (
 
 BREAKDOWN_METRICS = (
     {'key': 'expense_category_spend', 'label': 'Expenses by category', 'unit': 'money', 'group': 'Category'},
+    {'key': 'detailed_expense_category_spend', 'label': 'Detailed expense estimates by category (priced items)', 'unit': 'money', 'group': 'Category'},
     {'key': 'payroll_by_position', 'label': 'Payroll by staff position', 'unit': 'money', 'group': 'Staff position'},
     {'key': 'headcount_by_position', 'label': 'Headcount by staff position', 'unit': 'count', 'group': 'Staff position'},
     {'key': 'students_by_grade', 'label': 'Students by grade', 'unit': 'count', 'group': 'Grade'},
@@ -122,6 +123,11 @@ class SchoolDashboard(models.Model):
                 add('revenue_by_grade', enrollment.grade_level_id.name, enrollment.revenue_total)
             for category, expenses in year.expense_value_ids.grouped('expense_category_id').items():
                 add('expense_category_spend', category.name, expenses._category_amount_total())
+            if year.dataset_type == 'forecast' and year.detailed_expense_seed_ids:
+                selected = year._detailed_expense_catalog() & year.detailed_expense_seed_ids
+                for seed, amount, _note in year._detailed_expense_amounts(selected):
+                    if amount:
+                        add('detailed_expense_category_spend', seed.category_seed_id.name, amount)
             for salary in year.employment_salary_ids:
                 position = salary.staff_position_id.title
                 add('payroll_by_position', position, salary.annual_cost)

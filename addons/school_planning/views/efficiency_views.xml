@@ -33,6 +33,39 @@
     <record id="action_school_efficiency_defaults_list" model="ir.actions.act_window.view">
         <field name="sequence">1</field><field name="view_mode">list</field><field name="view_id" ref="view_school_efficiency_defaults_list"/><field name="act_window_id" ref="action_school_efficiency_defaults"/>
     </record>
+    <record id="view_price_currency_picker_list" model="ir.ui.view">
+        <field name="name">res.currency.price.picker.list</field>
+        <field name="model">res.currency</field>
+        <field name="inherit_id" ref="base.view_currency_tree"/>
+        <field name="mode">primary</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <button name="action_school_edit_price_currency" type="object" string="Edit" icon="fa-pencil" groups="base.group_system"/>
+                <button name="action_school_delete_price_currency" type="object" string="Delete" icon="fa-trash" groups="base.group_system"
+                        confirm="Delete this currency and its exchange rates from Odoo? This cannot be undone."/>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_operational_expense_seed_form" model="ir.ui.view">
+        <field name="name">school.prediction.operational.seed.form</field>
+        <field name="model">school.prediction.operational.seed</field>
+        <field name="arch" type="xml">
+            <form string="Expense Item">
+                <sheet>
+                    <group>
+                        <group><field name="name"/><field name="configuration_id" invisible="1"/><field name="category_seed_id" required="1" domain="[('configuration_id', '=', configuration_id), ('is_detailed_category', '=', True), ('cost_bucket', '=', 'operating')]" options="{'no_create': True}"/><field name="curriculum"/><field name="student_paid"/></group>
+                        <group><field name="basis"/><field name="price"/><field name="currency_id" context="{'list_view_ref': 'school_planning.view_price_currency_picker_list'}"/><field name="price_set"/><field name="quantity" invisible="basis not in ['teacher', 'quantity']"/><field name="quantity_set" invisible="basis not in ['teacher', 'quantity']"/></group>
+                    </group>
+                    <group string="Applicability">
+                        <field name="grade_scope"/>
+                        <field name="grade_ids" widget="many2many_tags" invisible="grade_scope != 'selected'"/>
+                        <field name="description"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
     <record id="view_prediction_seed_configuration_form" model="ir.ui.view">
         <field name="name">school.prediction.seed.configuration.form</field><field name="model">school.prediction.seed.configuration</field>
         <field name="arch" type="xml">
@@ -59,11 +92,23 @@
                         </page>
                         <page string="Expense Seeds">
                             <field name="expense_ids" nolabel="1" context="{'default_configuration_id': id}">
-                                <list><field name="display_order" widget="handle"/><field name="name"/><field name="cost_bucket"/><field name="trend" widget="school_expense_trend"/><field name="base_annual_amount" string="Base Amount / Revenue %"/></list>
+                                <list><field name="display_order" widget="handle"/><field name="name"/><field name="cost_bucket"/><field name="is_detailed_category"/><field name="trend" widget="school_expense_trend" invisible="is_detailed_category"/><field name="base_annual_amount" string="Base Amount / Revenue %" invisible="is_detailed_category"/></list>
                                 <form string="Expense Seed">
-                                    <group><group><field name="name"/><field name="cost_bucket"/><field name="display_order" invisible="1"/></group><group><field name="start_year_index"/><field name="trend" widget="school_expense_trend"/><field name="base_annual_amount" string="Base Amount / Revenue %"/><field name="annual_change_percent"/></group></group>
-                                    <field name="item_ids" nolabel="1"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/></list></field>
+                                    <group><group><field name="name"/><field name="cost_bucket"/><field name="is_detailed_category"/><field name="display_order" invisible="1"/></group><group invisible="is_detailed_category"><field name="start_year_index"/><field name="trend" widget="school_expense_trend"/><field name="base_annual_amount" string="Base Amount / Revenue %"/><field name="annual_change_percent"/></group></group>
+                                    <field name="item_ids" nolabel="1" invisible="is_detailed_category"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/></list></field>
                                 </form>
+                            </field>
+                        </page>
+                        <page string="Detailed Expense Seeds">
+                            <field name="operational_seed_ids" nolabel="1" context="{'default_configuration_id': id, 'form_view_ref': 'school_planning.view_operational_expense_seed_form'}">
+                                <list>
+                                    <field name="curriculum"/>
+                                    <field name="category_seed_id"/>
+                                    <field name="name"/>
+                                    <field name="price"/>
+                                    <field name="currency_id"/>
+                                    <field name="price_set"/>
+                                </list>
                             </field>
                         </page>
                         <page string="Staffing Seeds">

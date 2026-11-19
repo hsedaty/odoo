@@ -94,6 +94,7 @@ class SchoolSchools(models.Model):
     currency = fields.Char(string='Currency', required=True, size=3)
     country_id = fields.Many2one('res.country', string='Country')
     currency_id = fields.Many2one('res.currency', string='Currency')
+    curriculum_ids = fields.Many2many('school.curriculum.preset', string='Curricula')
     subject_ids = fields.One2many('school.subjects', 'school_id', string='Subjects')
     tax_rule_ids = fields.One2many('school.tax.rules', 'school_id', string='Tax Types')
 
@@ -381,6 +382,9 @@ class SchoolSubjectSetupWizard(models.TransientModel):
                 })
                 created_count += 1
 
+        if selected_subjects:
+            self.school_id.write({'curriculum_ids': [fields.Command.link(self.curriculum_id.id)]})
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -632,7 +636,9 @@ class SchoolPredictionQuickSetupRepeatingExpenseLine(models.TransientModel):
         ('per_student', 'Student Count Based'),
     ], string='Trend', required=True, default='stable')
     annual_change_percent = fields.Float(string='Annual Change %', required=True, default=0.0)
-    input_mode = fields.Selection([('normal', 'Normal'), ('extreme', 'Extreme Efficiency')], default='normal', required=True)
+    input_mode = fields.Selection([
+        ('normal', 'Normal'), ('extreme', 'Extreme Efficiency'), ('detail', 'Comparison only'),
+    ], default='normal', required=True)
     cost_bucket = fields.Selection([('operating', 'Operating Expenses'), ('employee', 'Employee Costs')], required=True, default='operating')
     amount_unit = fields.Char(string='Base Unit', compute='_compute_units')
     change_unit = fields.Char(string='Change Unit', compute='_compute_units')
@@ -714,13 +720,13 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         'school.prediction.quick.setup.repeating.expense.line',
         'wizard_id',
         string='Repeating Expense Inputs',
-        domain=[('input_mode', '=', 'normal')],
+        domain=[('input_mode', '=', 'normal'), ('cost_bucket', '=', 'operating'), ('trend', '=like', 'revenue_%')],
     )
     extreme_expense_line_ids = fields.One2many(
         'school.prediction.quick.setup.repeating.expense.line',
         'wizard_id',
         string='Extreme Efficiency Expenses',
-        domain=[('input_mode', '=', 'extreme')],
+        domain=[('input_mode', '=', 'extreme'), ('cost_bucket', '=', 'operating'), ('trend', '=like', 'revenue_%')],
     )
 
     def _extreme_expense_commands(self):
@@ -732,9 +738,7 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             'annual_change_percent': change,
             'cost_bucket': 'employee' if name == 'Salaries' else 'operating',
         }) for name, trend, amount, change in (
-            ('Salaries', 'revenue_decrease', 50.0, 3.0),
             ('Operational Expenses', 'revenue_decrease', 30.0, 3.0),
-            ('Digital Subscriptions', 'per_student', 0.0, 0.0),
         )]
 
     @api.onchange('extreme_efficiency', 'school_id', 'forecast_years', 'start_year')
@@ -748,7 +752,8 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
 
     def _active_repeating_expenses(self):
         self.ensure_one()
-        return self.extreme_expense_line_ids if self.extreme_efficiency else self.repeating_expense_line_ids
+        lines = self.extreme_expense_line_ids if self.extreme_efficiency else self.repeating_expense_line_ids
+        return lines.filtered(lambda row: row.cost_bucket == 'operating' and row.trend.startswith('revenue_'))
 
     def _existing_forecast_years(self):
         self.ensure_one()
@@ -1839,14 +1844,6 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                 if getattr(line, field_name) < 0:
                     raise ValidationError('Monthly salary cannot be negative.')
 
-        for line in self.one_time_expense_line_ids:
-            if line.year_index <= 0:
-                raise ValidationError('One-time expense year must be greater than zero.')
-            if line.year_index > self.forecast_years:
-                raise ValidationError('One-time expense year cannot be greater than forecast years.')
-            if line.amount < 0:
-                raise ValidationError('One-time expense cannot be negative.')
-
         for line in repeating_lines:
             if line.start_year_index <= 0:
                 raise ValidationError('Repeating expense start year must be greater than zero.')
@@ -1865,13 +1862,12 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         if self.extreme_efficiency and (payroll or overrides) and not self.replace_existing_payroll:
             raise ValidationError('Review and confirm Replace Existing Payroll before generating Extreme Efficiency for these years.')
         names = [(line.name or '').strip().casefold() for line in repeating_lines]
-        one_time_names = {(line.name or '').strip().casefold() for line in self.one_time_expense_line_ids}
         if len(names) != len(set(names)):
             raise ValidationError('Recurring expense category names must be unique.')
         for line in repeating_lines:
             if line.trend.startswith('revenue_') and line.base_annual_amount > 100:
                 raise ValidationError('Revenue expense percentages must be between 0 and 100.')
-        for name in set(names) | one_time_names:
+        for name in names:
             manual_values = self.env['school.expense.values'].search([
                 ('academic_year_id', 'in', existing_years.ids),
                 ('prediction_input_mode', '=', False),
@@ -1898,7 +1894,12 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         staff_positions = self._ensure_operating_models() if not self.extreme_efficiency else {}
         years = self._ensure_academic_years(forecast_years=self.forecast_years)
         prediction_tax_percent = min(max(float(self.income_tax_percent or 0.0), 0.0), 100.0)
-        years.write({'prediction_income_tax_percent': prediction_tax_percent})
+        years.write({
+            'prediction_income_tax_percent': prediction_tax_percent,
+            'prediction_expense_revenue_basis': 'net' if repeating_lines and all(
+                line.trend.startswith('revenue_after_tax_') for line in repeating_lines
+            ) else 'gross',
+        })
 
         if not self.extreme_efficiency:
             levels.write({'max_students_per_class_override': self.max_students_per_class_input})
@@ -1924,24 +1925,9 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         }
         role_field_map = self._salary_role_field_map()
         subject_count_floor = self._subject_count()
-        one_time_by_name_and_year = {}
-        one_time_line_map = {}
-        for index, line in enumerate(self.one_time_expense_line_ids.sorted('id'), start=1):
-            item_name = (line.name or '').strip() or f'One-Time Expense {index}'
-            year_no = int(line.year_index or 0)
-            amount = max(float(line.amount or 0.0), 0.0)
-            year_amount_map = one_time_by_name_and_year.setdefault(item_name, {})
-            year_amount_map[year_no] = year_amount_map.get(year_no, 0.0) + amount
-            one_time_line_map[item_name] = line
-
-        one_time_item_map = {}
-        for index, item_name in enumerate(one_time_by_name_and_year.keys(), start=1):
-            one_time_item_map[item_name] = self._ensure_prediction_expense_category(one_time_line_map[item_name], 10 + index)
-
         repeating_item_map = {}
-        repeating_display_order_base = 10 + len(one_time_item_map)
         for index, line in enumerate(repeating_lines.sorted('id'), start=1):
-            repeating_item_map[line.id] = self._ensure_prediction_expense_category(line, repeating_display_order_base + index)
+            repeating_item_map[line.id] = self._ensure_prediction_expense_category(line, 10 + index)
 
         for year_index, academic_year in enumerate(years):
             year_no = year_index + 1
@@ -1988,26 +1974,8 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
             net_revenue = gross_revenue * (1.0 - (prediction_tax_percent / 100.0))
             salary_budget = gross_revenue * salary_ratio
 
-            for item_name, one_time_item in one_time_item_map.items():
-                amount = one_time_by_name_and_year[item_name].get(year_no, 0.0)
-                self._upsert(
-                    'school.expense.values',
-                    [
-                        ('academic_year_id', '=', academic_year.id),
-                        ('expense_category_id', '=', one_time_item.id), ('expense_item_id', '=', False),
-                    ],
-                    {
-                        'academic_year_id': academic_year.id,
-                        'expense_category_id': one_time_item.id,
-                        'expense_item_id': False,
-                        'amount': amount,
-                        'prediction_input_mode': 'shared',
-                    },
-                )
-
             for rule_line in repeating_lines:
                 expense_amount = self._compute_repeating_expense_amount(rule_line, year_no, gross_revenue, total_students, net_revenue)
-                expense_amount += one_time_by_name_and_year.get(rule_line.name.strip(), {}).get(year_no, 0.0)
                 repeating_item = repeating_item_map[rule_line.id]
                 self._upsert(
                     'school.expense.values',
@@ -2109,6 +2077,9 @@ class SchoolAcademicYears(models.Model):
     start_date = fields.Date(string='Start Date')
     end_date = fields.Date(string='End Date')
     prediction_income_tax_percent = fields.Float(string='Prediction Income Tax %', default=0.0)
+    prediction_expense_revenue_basis = fields.Selection(
+        [('gross', 'Before Tax'), ('net', 'After Tax')], readonly=True, copy=False,
+    )
     fee_gross_total = fields.Float(string='Gross Revenue', compute='_compute_financial_summary', readonly=True, store=False)
     tax_deductions_total = fields.Float(string='Tax Deductions', compute='_compute_financial_summary', readonly=True, store=False)
     fee_total = fields.Float(string='Fee Revenue', compute='_compute_financial_summary', readonly=True, store=False)

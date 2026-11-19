@@ -3,5 +3,6 @@
 from . import school_planning
 from . import forecast_actual
 from . import efficiency
+from . import operational_expense
 from . import report_branding
 from . import dashboard

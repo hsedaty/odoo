@@ -65,7 +65,8 @@
                         </page>
                         <page string="Expenses">
                             <group invisible="dataset_type != 'actual'"><field name="expenses_status" widget="radio" options="{'horizontal': True}"/></group>
-                            <field name="operating_expense_ids" widget="school_expense_hierarchy" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id, 'default_school_id': school_id, 'default_cost_bucket': 'operating'}">
+                            <widget name="school_detailed_expenses" invisible="dataset_type != 'forecast'"/>
+                            <field name="operating_expense_ids" widget="school_expense_hierarchy" nolabel="1" readonly="baseline_locked" invisible="dataset_type == 'forecast'" context="{'default_academic_year_id': id, 'default_school_id': school_id, 'default_cost_bucket': 'operating'}">
                                 <list editable="bottom" limit="1000"><field name="expense_category_id" domain="[('school_id', '=', parent.school_id), ('cost_bucket', '=', 'operating')]" width="230px"/><field name="expense_item_id" domain="[('school_id', '=', parent.school_id), ('expense_category_id', '=', expense_category_id)]" context="{'default_school_id': parent.school_id}" width="320px"/><field name="cost_bucket" column_invisible="1"/><field name="amount" string="Annual Amount" width="160px"/></list>
                                 <form string="Expense">
                                     <group><field name="academic_year_id" invisible="1"/><field name="cost_bucket" invisible="1"/>

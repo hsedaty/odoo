@@ -150,7 +150,15 @@ class PredictionSeedConfiguration(models.Model):
 
     def _expense_commands(self, mode, bucket=None):
         self.ensure_one()
-        rows = self.expense_ids.filtered(lambda row: not bucket or row.cost_bucket == bucket)
+        rows = self.expense_ids.filtered(lambda row: (
+            not row.is_detailed_category and row.input_mode != 'detail'
+            and row.trend.startswith('revenue_') and (not bucket or row.cost_bucket == bucket)
+        ))
+        default_rule = self.env.ref('school_planning.prediction_seed_operations', raise_if_not_found=False)
+        if default_rule and default_rule in rows and len((rows - default_rule).filtered(
+            lambda row: row.cost_bucket == 'operating' and row.name.strip().casefold() == 'all expenses'
+        )) == 1:
+            rows -= default_rule
         return [fields.Command.create({**{name: row[name] for name in (
             'name', 'cost_bucket', 'start_year_index', 'trend', 'base_annual_amount', 'annual_change_percent')},
             'seed_id': row.id, 'input_mode': mode,
@@ -273,19 +281,36 @@ class PredictionExpenseSeed(models.Model):
     active = fields.Boolean(default=True)
     display_order = fields.Integer(default=10)
     item_ids = fields.One2many('school.prediction.seed.expense.item', 'expense_seed_id', string='Optional Items')
-    input_mode = fields.Selection([('normal', 'Normal'), ('extreme', 'Extreme Efficiency')], default='extreme', required=True)
+    input_mode = fields.Selection([
+        ('normal', 'Normal'), ('extreme', 'Extreme Efficiency'), ('detail', 'Comparison only'),
+    ], default='extreme', required=True)
     cost_bucket = fields.Selection([('operating', 'Expenses'), ('employee', 'Payroll')], default='operating', required=True)
+    is_detailed_category = fields.Boolean(string='Detailed Expense Category')
+    detailed_schedule_required = fields.Boolean(string='Require Payment Schedule')
     start_year_index = fields.Integer(default=1, required=True)
+    end_year_index = fields.Integer(string='Last Year (0 = ongoing)')
     trend = fields.Selection(selection=lambda self: self.env['school.prediction.quick.setup.repeating.expense.line']._fields['trend'].selection,
                              default='revenue_stable', required=True)
     base_annual_amount = fields.Float()
     annual_change_percent = fields.Float()
 
-    @api.constrains('base_annual_amount', 'annual_change_percent', 'start_year_index', 'trend')
+    @api.constrains('is_detailed_category', 'cost_bucket')
+    def _check_detailed_category_bucket(self):
+        if any(seed.is_detailed_category and seed.cost_bucket != 'operating' for seed in self):
+            raise ValidationError(self.env._('Detailed expense categories must use the Expenses cost bucket.'))
+        regular_seeds = self.filtered(lambda seed: not seed.is_detailed_category)
+        if regular_seeds and self.env['school.prediction.operational.seed'].with_context(active_test=False).search_count([
+            ('category_seed_id', 'in', regular_seeds.ids),
+        ], limit=1):
+            raise ValidationError(self.env._('Move the linked detailed expenses before changing this category to a regular seed.'))
+
+    @api.constrains('base_annual_amount', 'annual_change_percent', 'start_year_index', 'end_year_index', 'trend')
     def _check_values(self):
         for row in self:
             if row.base_annual_amount < 0 or row.annual_change_percent < 0 or row.start_year_index < 1 or (row.trend.startswith('revenue_') and row.base_annual_amount > 100):
                 raise ValidationError('Seed amounts and changes cannot be negative; revenue rates cannot exceed 100 and start year must be positive.')
+            if row.end_year_index and row.end_year_index < row.start_year_index:
+                raise ValidationError(self.env._('Last year must be at least the start year, or zero for an ongoing expense.'))
 
 
 class SchoolDefaults(models.Model):

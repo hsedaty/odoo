@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.37.0',
+    'version': '19.0.1.50.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """
@@ -20,6 +20,18 @@ School Budget & Planning System.
   and company logos, title, footer and grade detail for PDF and emailed reports.
   PDF amounts use green for inflows/surpluses, red negative amounts for outflows/
   deficits, and neutral zeroes. Signs are presentation-only; calculations do not change.
+- Quick Prediction forecasts operating expenses as a percentage of revenue.
+  The Starting Year is displayed without thousands separators.
+  Edit the base percentage and annual percentage-point trend in All Expenses.
+  Deleting built-in expense seeds is respected on module upgrades.
+- The forecast Financial Summary and year workspace offer an optional detailed
+  expense list. The checkboxes for each year determine which costs apply,
+  including accreditation fees; no payment schedule is required. Costs are shown
+  as a separate estimate without changing the existing percentage forecast.
+  The baseline also shows expenses as a share of before- or after-tax revenue.
+  Manage detailed categories in Expense Seeds and chart selected, priced items
+  under Detailed expense estimates by category in the dashboard.
+  Administrators can edit or delete unused currencies from the Price Currency picker.
   The former development-only New UI URL now opens the integrated dashboard.
 """,
     'author': 'Abdullah Karakuyu',
@@ -32,6 +44,7 @@ School Budget & Planning System.
         'data/subject_presets.xml',
         'data/prediction_scenarios.xml',
         'data/prediction_seed_configuration.xml',
+        'data/operational_expense_seeds.xml',
         'views/school_planning_frontend_templates.xml',
         'views/school_planning_prediction_templates.xml',
         'views/school_planning_views.xml',
@@ -47,6 +60,8 @@ School Budget & Planning System.
             'school_planning/static/src/js/dashboard.js',
             'school_planning/static/src/xml/dashboard.xml',
             'school_planning/static/src/css/dashboard.css',
+            'school_planning/static/src/js/detailed_expenses.js',
+            'school_planning/static/src/xml/detailed_expenses.xml',
         ],
         'web.assets_unit_tests': [
             'school_planning/static/tests/dashboard.test.js',

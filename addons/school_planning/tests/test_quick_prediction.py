@@ -11,6 +11,7 @@ from odoo import fields
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tests import Form
 from odoo.tests.common import TransactionCase, new_test_user, tagged
+from odoo.tools.convert import convert_file
 
 from ..models.forecast_actual import ACTUAL_TOOLS
 
@@ -26,7 +27,7 @@ class TestQuickPrediction(TransactionCase):
                      'payroll_trend': 'revenue_decrease', 'payroll_base_annual_amount': 50,
                      'payroll_annual_change_percent': 3})
         cls.configuration.asset_ids.write({'unit_price': 0, 'quantity': 1})
-        cls.configuration.expense_ids.unlink()
+        cls.configuration.expense_ids.filtered(lambda seed: not seed.is_detailed_category).unlink()
         cls.env['school.prediction.seed.expense'].create([
             {'configuration_id': cls.configuration.id, 'name': 'Manual Expenses', 'cost_bucket': 'operating',
              'trend': 'revenue_decrease', 'base_annual_amount': 30, 'annual_change_percent': 3},
@@ -42,6 +43,138 @@ class TestQuickPrediction(TransactionCase):
         return self.env['school.prediction.quick.setup.wizard'].create({
             'school_id': self.school.id, 'extreme_efficiency': extreme,
         })
+
+    def test_price_currency_picker_actions(self):
+        currency = self.env['res.currency'].create({'name': 'XTS', 'symbol': 'T'})
+        planner = new_test_user(self.env, login='currency_picker_planner', groups='base.group_user')
+        with self.assertRaises(AccessError):
+            currency.with_user(planner).action_school_edit_price_currency()
+        with self.assertRaises(AccessError):
+            currency.with_user(planner).action_school_delete_price_currency()
+        self.assertEqual(currency.action_school_edit_price_currency()['res_id'], currency.id)
+        seed = self.env.ref('school_planning.operational_digital_ixl')
+        seed.currency_id = currency
+        with self.assertRaisesRegex(ValidationError, 'expense seed'):
+            currency.action_school_delete_price_currency()
+        self.assertEqual(seed.currency_id, currency)
+        seed.currency_id = False
+        currency.action_school_delete_price_currency()
+        self.assertFalse(currency.exists())
+
+    def test_quick_prediction_only_forecasts_revenue_percentages(self):
+        seed = self.configuration.expense_ids.filtered(lambda row: not row.is_detailed_category)
+        seed.write({'name': 'All Expenses', 'trend': 'revenue_after_tax_decrease'})
+        self.env['school.prediction.seed.expense'].create([
+            {'configuration_id': self.configuration.id, 'name': 'Legacy fixed cost',
+             'trend': 'stable', 'base_annual_amount': 900},
+            {'configuration_id': self.configuration.id, 'name': 'Legacy breakdown',
+             'input_mode': 'detail', 'trend': 'revenue_stable', 'base_annual_amount': 10},
+        ])
+        for extreme in (False, True):
+            with self.subTest(extreme=extreme):
+                wizard = self._wizard(extreme)
+                wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+                wizard.income_tax_percent = 10
+                self.assertEqual(wizard._active_repeating_expenses().seed_id, seed)
+                self.env['school.prediction.quick.setup.one.time.expense.line'].create({
+                    'wizard_id': wizard.id, 'name': seed.name, 'year_index': 2, 'amount': 500,
+                })
+                self.env['school.prediction.quick.setup.repeating.expense.line'].create({
+                    'wizard_id': wizard.id, 'name': 'Legacy per-student cost',
+                    'input_mode': 'extreme' if extreme else 'normal', 'trend': 'per_student',
+                    'base_annual_amount': 5,
+                })
+                wizard.replace_existing_payroll = True
+                wizard.action_apply()
+                self.assertEqual(wizard._existing_forecast_years().mapped('expense_total'), [2700, 2430, 2160])
+                for year, rate in zip(wizard._existing_forecast_years(), (0.30, 0.27, 0.24)):
+                    self.assertAlmostEqual(year.get_detailed_expense_list()['baseline_ratio'], rate)
+                    self.assertEqual(year.get_detailed_expense_list()['baseline_ratio_basis'], 'of revenue after tax')
+                year.write({'prediction_expense_revenue_basis': False})
+                self.assertAlmostEqual(year.get_detailed_expense_list()['baseline_ratio'], 0.24)
+
+    def test_deleted_default_percentage_seed_stays_deleted(self):
+        # setUpClass removed the installed default and set up a custom percentage instead.
+        convert_file(self.env, 'school_planning', 'data/prediction_seed_configuration.xml', {}, mode='update')
+        self.assertFalse(self.env.ref('school_planning.prediction_seed_operations', raise_if_not_found=False))
+        self.assertEqual(self._wizard().repeating_expense_line_ids.seed_id,
+                         self.configuration.expense_ids.filtered(lambda row: not row.is_detailed_category))
+
+    def test_financial_summary_detailed_expenses_are_optional_and_year_specific(self):
+        self.school.write({
+            'currency_id': self.env.company.currency_id.id,
+            'curriculum_ids': [fields.Command.link(self.env.ref('school_planning.curriculum_us_standards').id)],
+        })
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first, second = wizard._existing_forecast_years()[:2]
+        self.assertFalse(first.get_detailed_expense_list()['created'])
+        self.assertEqual(first.get_detailed_expense_list()['baseline'], 3000)
+        self.assertAlmostEqual(first.get_detailed_expense_list()['baseline_ratio'], 0.30)
+        self.assertEqual(first.get_detailed_expense_list()['baseline_ratio_basis'], 'of revenue before tax')
+
+        accreditation = self.env.ref('school_planning.operational_accreditation_us_candidacy')
+        accreditation.category_seed_id.detailed_schedule_required = True
+        accreditation.write({'currency_id': self.school.currency_id.id, 'frequency': 'once',
+                             'start_year_index': 2})
+        digital = self.env.ref('school_planning.operational_digital_ixl')
+        digital.write({'currency_id': self.school.currency_id.id, 'price': 5, 'price_set': True})
+        foreign = self.env.ref('school_planning.operational_digital_inthinking')
+        missing = self.env.ref('school_planning.operational_digital_hmh')
+        data = first.create_detailed_expense_list()
+        self.assertEqual([group['name'] for group in data['groups']], ['American'])
+        self.assertEqual(data['total'], 0)
+        with self.assertRaises(ValidationError):
+            first.set_detailed_expense_selection(foreign.id, True)
+        self.assertEqual(first.set_detailed_expense_selection(accreditation.id, True)['total'], 2500)
+        self.assertEqual(first.set_detailed_expense_selection(digital.id, True)['total'], 3000)
+        self.assertEqual(first.set_detailed_expense_selection(missing.id, True)['pending'], 1)
+        self.assertEqual(first.create_detailed_expense_list()['total'], 3000)
+        self.assertFalse(second.get_detailed_expense_list()['created'])
+        accreditation.frequency = False
+        self.assertEqual(second.create_detailed_expense_list()['total'], 0)
+        self.assertEqual(second.set_detailed_expense_selection(accreditation.id, True)['total'], 2500)
+        self.assertEqual(first.set_detailed_expense_selection(digital.id, False)['total'], 2500)
+        self.assertEqual(first.set_detailed_expense_selection(accreditation.id, False)['total'], 0)
+        self.assertEqual(second.get_detailed_expense_list()['total'], 2500)
+        self.assertEqual(first.expense_total, 3000)
+        self.assertEqual(second.expense_total, 2700)
+        first.action_freeze_baseline()
+        with self.assertRaises(ValidationError):
+            first.set_detailed_expense_selection(digital.id, True)
+
+    def test_detailed_expense_category_seeds_are_charted_without_posting(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        year = wizard._existing_forecast_years()[0]
+        self.assertEqual(self.env.ref('school_planning.operational_digital_ixl').category_seed_id.name, 'Digital Resources')
+        with Form(self.configuration, view='school_planning.view_prediction_seed_configuration_form') as form:
+            with form.expense_ids.new() as category_form:
+                category_form.name = 'IT Support'
+                category_form.is_detailed_category = True
+        category = self.configuration.expense_ids.filtered(lambda row: row.name == 'IT Support')
+        with Form(self.configuration, view='school_planning.view_prediction_seed_configuration_form') as form:
+            with form.operational_seed_ids.new() as item_form:
+                item_form.name = 'Support Retainer'
+                item_form.category_seed_id = category
+                item_form.basis = 'fixed'
+                item_form.price = 880
+                item_form.currency_id = self.school.currency_id or self.env.company.currency_id
+                item_form.price_set = True
+        item = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'Support Retainer')
+        self.assertNotIn(category, self._wizard().repeating_expense_line_ids.seed_id)
+        year.create_detailed_expense_list()
+        data = year.set_detailed_expense_selection(item.id, True)
+        self.assertEqual(data['groups'][0]['categories'][0]['name'], 'IT Support')
+        dashboard = self.school.get_dashboard(school_id=self.school.id, year_id=year.id)
+        self.assertIn('detailed_expense_category_spend', [metric['key'] for metric in dashboard['breakdown_metrics']])
+        breakdowns = dashboard['breakdowns']
+        self.assertEqual(breakdowns['detailed_expense_category_spend'], [{'label': 'IT Support', 'value': 880}])
+        self.assertEqual(breakdowns['expense_category_spend'], [{'label': 'Manual Expenses', 'value': 3000}])
+        year.set_detailed_expense_selection(item.id, False)
+        self.assertFalse(self.school._chart_breakdowns(year)['detailed_expense_category_spend'])
 
     def test_subject_setup_american_manual_selection(self):
         existing_subjects = self.school.subject_ids
@@ -357,7 +490,9 @@ class TestQuickPrediction(TransactionCase):
 
     def test_mode_inputs_and_demo_preservation(self):
         wizard = self._wizard()
-        self.assertEqual(set(wizard.repeating_expense_line_ids.mapped('name')), set(self.configuration.expense_ids.filtered(lambda row: row.cost_bucket == 'operating').mapped('name')))
+        self.assertEqual(set(wizard.repeating_expense_line_ids.mapped('name')), set(self.configuration.expense_ids.filtered(
+            lambda row: row.cost_bucket == 'operating' and not row.is_detailed_category
+        ).mapped('name')))
         self.assertFalse(wizard.extreme_expense_line_ids)
         wizard.extreme_efficiency = True
         wizard._onchange_extreme_efficiency()
@@ -957,10 +1092,10 @@ class TestQuickPrediction(TransactionCase):
         self.assertTrue(expenses[2].exists())
 
     def test_prediction_expenses_use_category_seeds(self):
-        self.configuration.expense_ids.filtered(lambda row: row.cost_bucket == 'operating').unlink()
+        self.configuration.expense_ids.filtered(lambda row: row.cost_bucket == 'operating' and not row.is_detailed_category).unlink()
         categories = self.env['school.prediction.seed.expense'].create([
-            {'configuration_id': self.configuration.id, 'name': 'Miscellaneous', 'trend': 'stable'},
-            {'configuration_id': self.configuration.id, 'name': 'Facilities', 'trend': 'stable',
+            {'configuration_id': self.configuration.id, 'name': 'Miscellaneous', 'trend': 'revenue_stable'},
+            {'configuration_id': self.configuration.id, 'name': 'Facilities', 'trend': 'revenue_stable',
              'item_ids': [(0, 0, {'name': 'Rent'}), (0, 0, {'name': 'Maintenance'})]},
         ])
         for extreme in (False, True):
@@ -972,19 +1107,16 @@ class TestQuickPrediction(TransactionCase):
                 wizard.action_load_demo_data()
                 rows = wizard.extreme_expense_line_ids if extreme else wizard.repeating_expense_line_ids
                 self.assertEqual(set(rows.mapped('seed_id').ids), set(categories.ids))
-                rows.write({'trend': 'stable', 'base_annual_amount': 700})
-                rows.filtered(lambda row: row.name == 'Miscellaneous').base_annual_amount = 300
-                self.env['school.prediction.quick.setup.one.time.expense.line'].create({
-                    'wizard_id': wizard.id, 'name': categories[0].name, 'seed_id': categories[0].id, 'year_index': 2, 'amount': 100,
-                })
+                rows.write({'base_annual_amount': 7})
+                rows.filtered(lambda row: row.name == 'Miscellaneous').base_annual_amount = 3
                 wizard.replace_existing_payroll = True
                 wizard.action_apply()
-                for year_index, year in enumerate(wizard._existing_forecast_years(), start=1):
-                    for category, amount in [('Miscellaneous', 300), ('Facilities', 700)]:
+                for year in wizard._existing_forecast_years():
+                    for category, rate in [('Miscellaneous', 0.03), ('Facilities', 0.07)]:
                         expense = year.operating_expense_ids.filtered(lambda row: row.expense_category_id.name == category and not row.expense_item_id)
                         self.assertEqual(len(expense), 1)
                         self.assertFalse(expense.expense_item_id)
-                        self.assertEqual(expense.amount, amount + (100 if category == 'Miscellaneous' and year_index == 2 else 0))
+                        self.assertAlmostEqual(expense.amount, year.fee_gross_total * rate)
                 wizard.action_apply()
                 self.assertEqual(len(wizard._existing_forecast_years()[0].operating_expense_ids.filtered(
                     lambda row: row.expense_category_id.name in categories.mapped('name') and not row.expense_item_id)), 2)
@@ -1039,15 +1171,15 @@ class TestQuickPrediction(TransactionCase):
         self.assertEqual([command[2]['name'] for command in before], [command[2]['name'] for command in after])
 
     def test_custom_wizard_expense_snapshot(self):
-        seed = self.configuration.expense_ids.filtered(lambda row: row.cost_bucket == 'operating')[0]
+        seed = self.configuration.expense_ids.filtered(lambda row: row.cost_bucket == 'operating' and not row.is_detailed_category)[0]
         template = self.env['school.prediction.seed.expense.item'].create({'expense_seed_id': seed.id, 'name': 'Original Optional Item'})
         wizard = self._wizard(True)
         wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 1000})
         rule = wizard.extreme_expense_line_ids[0]
-        rule.write({'name': 'Edited Wizard Category', 'trend': 'stable', 'base_annual_amount': 250})
+        rule.write({'name': 'Edited Wizard Category', 'trend': 'revenue_stable', 'base_annual_amount': 0.25})
         self.env['school.prediction.quick.setup.repeating.expense.line'].create({
             'wizard_id': wizard.id, 'name': 'New Wizard Category', 'input_mode': 'extreme',
-            'trend': 'stable', 'base_annual_amount': 75,
+            'trend': 'revenue_stable', 'base_annual_amount': 0.075,
         })
         rule.seed_id.name = 'Later Seed Name'
         template.name = 'Later Template Name'

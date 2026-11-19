@@ -32,6 +32,21 @@ registry.category("fields").add("school_expense_trend", {
     component: ExpenseTrendField,
 });
 
+class RevenueExpenseTrendField extends ExpenseTrendField {
+    get choices() {
+        return super.choices.filter(({ value }) => value.startsWith("revenue_"));
+    }
+
+    trendHelp(trend) {
+        return super.trendHelp(trend).replace("Base Amount:", "Base Revenue %:");
+    }
+}
+
+registry.category("fields").add("school_revenue_expense_trend", {
+    ...selectionField,
+    component: RevenueExpenseTrendField,
+});
+
 patch(ActionDialog.prototype, {
     setup() {
         super.setup(...arguments);
