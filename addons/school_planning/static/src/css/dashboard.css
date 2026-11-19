@@ -23,6 +23,12 @@
 .sp-filter-bar { display: flex; align-items: end; gap: 20px; background: white; border: 1px solid var(--sp-border); border-radius: 12px; padding: 18px 22px; }
 .sp-filter-bar label { flex: 1; font-size: 12px; font-weight: 600; color: var(--sp-muted); min-width: 0; }
 .sp-filter-bar .form-select { margin-top: 7px; color: var(--sp-ink); border-color: var(--sp-border); border-radius: 7px; font-size: 14px; min-height: 40px; }
+.sp-year-filter { flex: 1; min-width: 0; color: var(--sp-muted); font-size: 12px; font-weight: 600; }
+.sp-year-filter details { position: relative; }
+.sp-year-filter summary { cursor: pointer; list-style: none; }
+.sp-year-filter summary::-webkit-details-marker { display: none; }
+.sp-year-options { position: absolute; z-index: 10; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; padding: 8px; background: white; border: 1px solid var(--sp-border); border-radius: 7px; box-shadow: 0 4px 12px #203d4620; }
+.sp-year-options label { display: flex; align-items: center; gap: 8px; padding: 7px; cursor: pointer; color: var(--sp-ink); font-size: 14px; font-weight: 400; }
 .sp-refresh { min-height: 40px; }
 .sp-dashboard-tabs { display: flex; align-items: center; gap: 28px; margin-top: 22px; border-bottom: 1px solid var(--sp-border); }
 .sp-dashboard-tabs > button { border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 16px 2px; color: var(--sp-muted); font-weight: 600; }
@@ -114,7 +120,7 @@
     .sp-dashboard-header { align-items: start; flex-direction: column; }
     .sp-filter-bar { flex-wrap: wrap; padding: 16px; gap: 14px; }
     .sp-filter-bar label:first-child { flex-basis: 100%; }
-    .sp-filter-bar label { flex-basis: 40%; }
+    .sp-filter-bar label, .sp-year-filter { flex-basis: 40%; }
     .sp-refresh { width: 100%; }
     .sp-kpi-grid { gap: 12px; }
     .sp-kpi { padding: 16px; }

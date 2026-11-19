@@ -172,9 +172,65 @@ class TestQuickPrediction(TransactionCase):
         self.assertIn('detailed_expense_category_spend', [metric['key'] for metric in dashboard['breakdown_metrics']])
         breakdowns = dashboard['breakdowns']
         self.assertEqual(breakdowns['detailed_expense_category_spend'], [{'label': 'IT Support', 'value': 880}])
-        self.assertEqual(breakdowns['expense_category_spend'], [{'label': 'Manual Expenses', 'value': 3000}])
+        self.assertEqual(breakdowns['expense_category_spend'], [{'label': 'IT Support', 'value': 880}])
         year.set_detailed_expense_selection(item.id, False)
         self.assertFalse(self.school._chart_breakdowns(year)['detailed_expense_category_spend'])
+
+    def test_expense_chart_switches_per_year_without_double_counting(self):
+        self.school.write({
+            'currency_id': self.env.company.currency_id.id,
+            'curriculum_ids': [fields.Command.link(self.env.ref('school_planning.curriculum_us_standards').id)],
+        })
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first, second = wizard._existing_forecast_years()[:2]
+        category = self.env['school.expense.categories'].create({
+            'school_id': self.school.id, 'name': 'Other expenses', 'display_order': 20,
+        })
+        self.env['school.expense.values'].create({
+            'academic_year_id': first.id, 'expense_category_id': category.id, 'amount': 100,
+        })
+        digital = self.env.ref('school_planning.operational_digital_ixl')
+        digital.write({'currency_id': self.school.currency_id.id, 'price': 5, 'price_set': True})
+        accreditation = self.env.ref('school_planning.operational_accreditation_us_candidacy')
+        accreditation.currency_id = self.school.currency_id
+        missing = self.env.ref('school_planning.operational_digital_hmh')
+        missing.price_set = False
+
+        before = self.school.get_dashboard(school_id=self.school.id, year_id=first.id)
+        self.assertFalse(before['expense_breakdown_uses_details'])
+        self.assertEqual(before['breakdowns']['expense_category_spend'], [
+            {'label': 'Manual Expenses', 'value': 3000},
+            {'label': 'Other expenses', 'value': 100},
+        ])
+        first.create_detailed_expense_list()
+        self.assertEqual(self.school._chart_breakdowns(first)['expense_category_spend'], [
+            {'label': 'Other expenses', 'value': 100},
+        ])
+        first.set_detailed_expense_selection(digital.id, True)
+        first.set_detailed_expense_selection(accreditation.id, True)
+        first.set_detailed_expense_selection(missing.id, True)
+        data = self.school.get_dashboard(school_id=self.school.id, year_id=first.id)
+        self.assertTrue(data['expense_breakdown_uses_details'])
+        self.assertEqual(data['breakdowns']['expense_category_spend'], [
+            {'label': 'Accreditation', 'value': 2500},
+            {'label': 'Digital Resources', 'value': 500},
+            {'label': 'Other expenses', 'value': 100},
+        ])
+        self.assertEqual(first.get_detailed_expense_list()['pending'], 1)
+        self.assertEqual(self.school._chart_breakdowns(first | second)['expense_category_spend'], [
+            {'label': 'Manual Expenses', 'value': 2700},
+            {'label': 'Accreditation', 'value': 2500},
+            {'label': 'Digital Resources', 'value': 500},
+            {'label': 'Other expenses', 'value': 100},
+        ])
+        first.set_detailed_expense_selection(digital.id, False)
+        self.assertEqual(self.school._chart_breakdowns(first)['expense_category_spend'], [
+            {'label': 'Accreditation', 'value': 2500},
+            {'label': 'Other expenses', 'value': 100},
+        ])
+        self.assertEqual(first.expense_total, 3100)
 
     def test_subject_setup_american_manual_selection(self):
         existing_subjects = self.school.subject_ids

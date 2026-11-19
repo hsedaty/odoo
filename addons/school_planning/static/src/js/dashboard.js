@@ -31,22 +31,22 @@ export class SchoolDashboard extends Component {
         const previous = this.props.state || {};
         this.state = useState({
             schoolId: previous.schoolId ?? this.props.action.params?.school_id ?? false,
-            dataset: previous.dataset || "forecast", yearId: previous.yearId || false,
+            dataset: previous.dataset || "forecast",
+            yearIds: previous.yearIds ?? (previous.yearId ? [previous.yearId] : null),
             data: null, busy: true, error: "",
             tab: previous.tab || "overview", search: previous.search || "",
             sort: previous.sort || "name", descending: previous.descending || false,
             columns: previous.columns || ["students", "fee_gross_total", "operating_cost_total", "net_budget", "margin"],
             chartConfig: previous.chartConfig || {},
             chartPreferencesChanged: previous.chartPreferencesChanged || false,
-            comparisonYearId: previous.comparisonYearId || false,
             canSaveChartPreferences: false,
         });
         useSetupAction({
             getLocalState: () => ({
-                schoolId: this.state.schoolId, dataset: this.state.dataset, yearId: this.state.yearId,
+                schoolId: this.state.schoolId, dataset: this.state.dataset, yearIds: this.state.yearIds,
                 tab: this.state.tab, search: this.state.search, sort: this.state.sort,
                 descending: this.state.descending, columns: [...this.state.columns],
-                chartConfig: { ...this.state.chartConfig }, comparisonYearId: this.state.comparisonYearId,
+                chartConfig: { ...this.state.chartConfig },
                 chartPreferencesChanged: this.state.chartPreferencesChanged,
             }),
         });
@@ -60,7 +60,7 @@ export class SchoolDashboard extends Component {
         });
         useEffect(() => this.drawCharts(), () => [
             this.state.data, this.state.tab, this.state.busy,
-            ...Object.values(this.state.chartConfig), this.state.comparisonYearId,
+            ...Object.values(this.state.chartConfig),
         ]);
     }
 
@@ -70,7 +70,7 @@ export class SchoolDashboard extends Component {
         this.state.error = "";
         try {
             const data = await this.orm.call("school.schools", "get_dashboard", [], {
-                school_id: this.state.schoolId, dataset: this.state.dataset, year_id: this.state.yearId,
+                school_id: this.state.schoolId, dataset: this.state.dataset, year_ids: this.state.yearIds,
             });
             if (requestId === this.requestId) {
                 if (!this.state.chartPreferencesChanged) {
@@ -79,9 +79,6 @@ export class SchoolDashboard extends Component {
                 this.state.data = data;
                 this.state.schoolId = data.school_id;
                 this.state.canSaveChartPreferences = data.can_save_chart_preferences;
-                if (!data.comparisons.some(row => row.id === this.state.comparisonYearId)) {
-                    this.state.comparisonYearId = data.comparisons.at(-1)?.id || false;
-                }
             }
         } catch (error) {
             if (requestId === this.requestId) {
@@ -97,12 +94,39 @@ export class SchoolDashboard extends Component {
 
     changeFilter(key, event) {
         this.state[key] = key === "dataset" ? event.target.value : Number(event.target.value) || false;
-        if (key !== "yearId") {
-            this.state.yearId = false;
-        }
+        this.state.yearIds = null;
         if (key === "schoolId") {
             this.state.chartPreferencesChanged = false;
         }
+        this.load();
+    }
+
+    get selectedYearIds() {
+        return this.state.yearIds ?? (this.state.data?.years || []).map(year => year.id);
+    }
+
+    get yearFilterLabel() {
+        if (this.state.yearIds === null) return _t("All years");
+        if (this.state.yearIds.length === 1) {
+            return this.state.data?.years.find(year => year.id === this.state.yearIds[0])?.name || _t("1 year");
+        }
+        return _t("%s years selected", this.state.yearIds.length);
+    }
+
+    selectAllYears(event) {
+        this.state.yearIds = event.target.checked ? null : [];
+        this.load();
+    }
+
+    selectYear(id, event) {
+        const selected = new Set(this.selectedYearIds);
+        if (event.target.checked) {
+            selected.add(id);
+        } else {
+            selected.delete(id);
+        }
+        const all = this.state.data.years;
+        this.state.yearIds = selected.size === all.length ? null : [...selected];
         this.load();
     }
 
@@ -198,10 +222,6 @@ export class SchoolDashboard extends Component {
         return this.state.data?.breakdowns[this.state.chartConfig.breakdown_metric] || [];
     }
 
-    get selectedComparison() {
-        return this.state.data?.comparisons.find(row => row.id === this.state.comparisonYearId);
-    }
-
     get hasBreakdownChart() {
         const rows = this.breakdownRows;
         return rows.length > 0 && (
@@ -215,24 +235,19 @@ export class SchoolDashboard extends Component {
         this.state.chartPreferencesChanged = true;
     }
 
-    selectComparisonYear(event) {
-        this.state.comparisonYearId = Number(event.target.value) || false;
+    comparisonActualValue(comparison) {
+        return comparison.actual?.[this.state.chartConfig.comparison_metric];
     }
 
-    get comparisonActualValue() {
-        return this.selectedComparison?.actual?.[this.state.chartConfig.comparison_metric];
+    comparisonDifference(comparison) {
+        const actual = this.comparisonActualValue(comparison);
+        return actual == null ? null : actual - comparison.forecast[this.state.chartConfig.comparison_metric];
     }
 
-    get comparisonDifference() {
-        return this.comparisonActualValue == null
-            ? null : this.comparisonActualValue - this.selectedComparison.forecast[this.state.chartConfig.comparison_metric];
-    }
-
-    get comparisonStatus() {
-        if (!this.selectedComparison) return _t("No forecast years available");
-        if (!this.selectedComparison.actual_exists) return _t("No linked Actual year yet");
-        if (this.comparisonActualValue == null) return _t("Not entered");
-        return this.selectedComparison.actual_provisional ? _t("Actual is provisional") : _t("Actual complete");
+    comparisonStatus(comparison) {
+        if (!comparison.actual_exists) return _t("No linked Actual year yet");
+        if (this.comparisonActualValue(comparison) == null) return _t("Not entered");
+        return comparison.actual_provisional ? _t("Actual is provisional") : _t("Actual complete");
     }
 
     async saveChartPreferences(reset = false) {
@@ -334,7 +349,7 @@ export class SchoolDashboard extends Component {
         const config = this.state.chartConfig;
         const trendMetric = this.trendMetric;
         const breakdownMetric = this.breakdownMetric;
-        const comparison = this.selectedComparison;
+        const comparisons = this.state.data.comparisons;
         const comparisonMetric = this.comparisonMetric;
         charts.push(new Chart(this.trendRef.el, {
             type: config.trend_type,
@@ -393,16 +408,14 @@ export class SchoolDashboard extends Component {
                 } },
             }));
         }
-        if (this.comparisonRef.el && comparison && comparisonMetric) {
-            const forecastValue = comparison.forecast[comparisonMetric.key];
-            const actualValue = comparison.actual?.[comparisonMetric.key];
+        if (this.comparisonRef.el && comparisons.length && comparisonMetric) {
             charts.push(new Chart(this.comparisonRef.el, {
                 type: "bar",
                 data: {
-                    labels: [comparison.name],
+                    labels: comparisons.map(comparison => comparison.name),
                     datasets: [
-                        { label: _t("Forecast"), data: [forecastValue], backgroundColor: COLORS[0] },
-                        { label: _t("Actual"), data: [actualValue], backgroundColor: COLORS[1] },
+                        { label: _t("Forecast"), data: comparisons.map(comparison => comparison.forecast[comparisonMetric.key]), backgroundColor: COLORS[0] },
+                        { label: _t("Actual"), data: comparisons.map(comparison => comparison.actual?.[comparisonMetric.key] ?? null), backgroundColor: COLORS[1] },
                     ],
                 },
                 options: {

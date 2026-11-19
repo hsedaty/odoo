@@ -51,6 +51,31 @@ class TestSchoolDashboard(TransactionCase):
             lambda line: line.grade_level_id == self.grade
         ).mapped('revenue_total')))
 
+    def test_multiple_year_selection_filters_comparison_and_totals(self):
+        forecasts = self.years.filtered(lambda year: year.dataset_type == 'forecast')
+        third = self.env['school.academic.years'].create({
+            'school_id': self.school.id, 'academic_year_name': '2098-2099',
+            'start_date': '2098-09-01', 'end_date': '2099-06-30', 'dataset_type': 'forecast',
+        })
+        actual = forecasts[0]._ensure_actual_year()
+        selected = forecasts[0] | third
+        data = self.school.get_dashboard(self.school.id, year_ids=selected.ids)
+        self.assertEqual([row['id'] for row in data['rows']], selected.ids)
+        self.assertEqual([row['id'] for row in data['comparisons']], selected.ids)
+        self.assertEqual(data['totals']['net_budget'], sum(selected.mapped('net_budget')))
+        self.assertTrue(data['comparisons'][0]['actual_exists'])
+        self.assertFalse(data['comparisons'][1]['actual_exists'])
+        self.assertEqual(len(self.school.get_dashboard(self.school.id)['comparisons']), 3)
+        self.assertEqual(self.school.get_dashboard(self.school.id, year_ids=[])['rows'], [])
+        self.assertEqual(self.school.get_dashboard(self.school.id, year_ids=[])['comparisons'], [])
+        actual_data = self.school.get_dashboard(self.school.id, dataset='actual', year_ids=actual.ids)
+        self.assertEqual([row['id'] for row in actual_data['comparisons']], forecasts[0].ids)
+        for invalid in ([forecasts[0].id, self.years[-1].id], [False], 'bad', [99999999]):
+            with self.subTest(invalid=invalid), self.assertRaises(ValidationError):
+                self.school.get_dashboard(self.school.id, year_ids=invalid)
+        with self.assertRaises(ValidationError):
+            self.school.get_dashboard(self.school.id, year_id=forecasts[0].id, year_ids=selected.ids)
+
     def test_financial_values_and_cost_reconciliation(self):
         year = self.years[0]
         fee = self.env['school.fee.types'].create({

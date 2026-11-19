@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.50.0',
+    'version': '19.0.1.52.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """
@@ -16,6 +16,7 @@ School Budget & Planning System.
   sortable dynamic report with selectable columns and CSV/PDF export. Forecast
   and Actual are kept separate; unfinished Actual figures are provisional.
   Financial KPIs sum the selected period; Students shows its latest year.
+  Select any academic years; Forecast vs Actual follows the same selection.
 - Report branding: open a school's Report Branding settings to customize school
   and company logos, title, footer and grade detail for PDF and emailed reports.
   PDF amounts use green for inflows/surpluses, red negative amounts for outflows/
@@ -29,8 +30,9 @@ School Budget & Planning System.
   including accreditation fees; no payment schedule is required. Costs are shown
   as a separate estimate without changing the existing percentage forecast.
   The baseline also shows expenses as a share of before- or after-tax revenue.
-  Manage detailed categories in Expense Seeds and chart selected, priced items
-  under Detailed expense estimates by category in the dashboard.
+  Manage detailed categories in Expense Seeds. The dashboard's Expenses by
+  category chart uses selected, priced details for years with a detailed list
+  and percentage forecasts for other years; financial totals are unchanged.
   Administrators can edit or delete unused currencies from the Price Currency picker.
   The former development-only New UI URL now opens the integrated dashboard.
 """,

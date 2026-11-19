@@ -6,6 +6,7 @@ import {
     defineModels,
     models,
     mountWithCleanup,
+    onRpc,
     preloadBundle,
 } from "@web/../tests/web_test_helpers";
 import { SchoolDashboard } from "@school_planning/js/dashboard";
@@ -46,6 +47,38 @@ class School extends models.Model {
 defineModels([School]);
 defineMailModels();
 preloadBundle("web.chartjs_lib");
+
+test("comparison follows non-consecutive year selections", async () => {
+    const years = [
+        { id: 1, name: "2026-2027" },
+        { id: 2, name: "2027-2028" },
+        { id: 3, name: "2028-2029" },
+    ];
+    onRpc("school.schools", "get_dashboard", ({ kwargs }) => {
+        const data = School.prototype.get_dashboard();
+        const selected = kwargs.year_ids === null ? years : years.filter(year => kwargs.year_ids.includes(year.id));
+        data.years = years;
+        data.rows = selected.map(year => ({ ...data.rows[0], ...year }));
+        data.comparisons = selected.map(year => ({
+            ...year, forecast: { net_budget: year.id * 100 }, actual: null,
+            actual_exists: false, actual_provisional: false, approved: false,
+        }));
+        return data;
+    });
+    await mountWithCleanup(SchoolDashboard, { props: { action: {} } });
+    let chart = Chart.getChart(queryOne(".sp-comparison-card canvas"));
+    expect(chart.data.labels).toEqual(years.map(year => year.name));
+    expect(chart.data.datasets[1].data).toEqual([null, null, null]);
+    await contains(".sp-year-filter summary").click();
+    await contains(".sp-year-options label:nth-child(3) input").click();
+    chart = Chart.getChart(queryOne(".sp-comparison-card canvas"));
+    expect(chart.data.labels).toEqual(["2026-2027", "2028-2029"]);
+    expect(chart.data.datasets[0].data).toEqual([100, 300]);
+    expect(".sp-comparison-card tbody tr").toHaveCount(2);
+    await contains(".sp-year-options label:first-child input").click();
+    chart = Chart.getChart(queryOne(".sp-comparison-card canvas"));
+    expect(chart.data.labels).toEqual(years.map(year => year.name));
+});
 
 for (const style of ["doughnut", "bar"]) {
     test(`breakdown ${style} tooltips format money and counts`, async () => {

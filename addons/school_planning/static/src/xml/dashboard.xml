@@ -29,12 +29,16 @@
                             <option value="legacy" t-att-selected="state.dataset === 'legacy'">Unclassified</option>
                         </select>
                     </label>
-                    <label>Academic year
-                        <select class="form-select" t-on-change="(ev) => this.changeFilter('yearId', ev)" t-att-disabled="state.busy">
-                            <option value="" t-att-selected="!state.yearId">All years</option>
-                            <option t-foreach="state.data?.years || []" t-as="year" t-key="year.id" t-att-value="year.id" t-att-selected="state.yearId === year.id"><t t-esc="year.name"/></option>
-                        </select>
-                    </label>
+                    <div class="sp-year-filter">
+                        <span id="sp-year-filter-label">Academic years</span>
+                        <details>
+                            <summary class="form-select" aria-labelledby="sp-year-filter-label sp-year-filter-value"><span id="sp-year-filter-value" t-esc="yearFilterLabel"/></summary>
+                            <div class="sp-year-options">
+                                <label><input type="checkbox" t-att-checked="state.yearIds === null" t-att-disabled="state.busy" t-on-change="selectAllYears"/> All years</label>
+                                <label t-foreach="state.data?.years || []" t-as="year" t-key="year.id"><input type="checkbox" t-att-checked="selectedYearIds.includes(year.id)" t-att-disabled="state.busy" t-on-change="(ev) => this.selectYear(year.id, ev)"/> <t t-esc="year.name"/></label>
+                            </div>
+                        </details>
+                    </div>
                     <button class="btn btn-light sp-refresh" t-on-click="load" t-att-disabled="state.busy"><i class="fa fa-refresh me-2" aria-hidden="true"/>Refresh</button>
                 </section>
 
@@ -53,11 +57,13 @@
                     <div t-if="!state.data.rows.length" class="sp-dashboard-empty">
                         <span class="sp-empty-icon"><i class="fa fa-bar-chart" aria-hidden="true"/></span>
                         <h2 t-if="!state.data.schools.length">A clear plan starts with your school</h2>
+                        <h2 t-elif="state.yearIds !== null and !state.yearIds.length">No academic years selected</h2>
                         <h2 t-else="">No years in this dataset yet</h2>
                         <p t-if="!state.data.schools.length">Add your school, configure its subjects, then create your first prediction.</p>
+                        <p t-elif="state.yearIds !== null and !state.yearIds.length">Select one or more academic years in the filter above.</p>
                         <p t-elif="state.dataset === 'actual'">Open a forecast year and choose Enter Actuals to start recording real results.</p>
                         <p t-else="">Choose another dataset or create a prediction to see your figures here.</p>
-                        <button class="btn btn-primary" t-on-click="openSchools">Go to schools</button>
+                        <button t-if="state.yearIds === null or state.yearIds.length" class="btn btn-primary" t-on-click="openSchools">Go to schools</button>
                     </div>
                     <section t-else="" id="sp-insights-panel" role="tabpanel" t-att-aria-labelledby="state.tab === 'overview' ? 'sp-overview-tab' : 'sp-report-tab'">
                         <div t-if="provisional" class="alert alert-warning mt-3" role="status"><i class="fa fa-info-circle me-2" aria-hidden="true"/>Actuals are still in progress. These figures are provisional; unentered sections may show zero.</div>
@@ -116,21 +122,16 @@
                                 </article>
                                 <article class="sp-dashboard-card sp-comparison-card">
                                     <div class="sp-card-heading sp-chart-heading">
-                                        <div><h2>Forecast vs Actual</h2><p>Compare a forecast with its linked Actual year</p></div>
+                                        <div><h2>Forecast vs Actual</h2><p>Compare selected forecast years with their linked Actual years</p></div>
                                         <div class="sp-chart-controls">
                                             <label><span class="visually-hidden">Comparison metric</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('comparison_metric', ev)"><option t-foreach="state.data.trend_metrics" t-as="metric" t-key="metric.key" t-att-value="metric.key" t-att-selected="state.chartConfig.comparison_metric === metric.key" t-esc="metric.label"/></select></label>
-                                            <label><span class="visually-hidden">Forecast year</span><select class="form-select form-select-sm" t-on-change="selectComparisonYear"><option t-foreach="state.data.comparisons" t-as="year" t-key="year.id" t-att-value="year.id" t-att-selected="state.comparisonYearId === year.id" t-esc="year.name"/></select></label>
                                         </div>
                                     </div>
-                                    <div t-if="selectedComparison" class="sp-chart-container sp-chart-short"><canvas t-ref="comparison" role="img" t-att-aria-label="'Forecast versus Actual: ' + comparisonMetric.label + ' for ' + selectedComparison.name + '.'"/></div>
-                                    <p t-else="" class="sp-chart-empty">Create a forecast year to compare forecast and Actual values.</p>
-                                    <div t-if="selectedComparison" class="sp-comparison-summary">
-                                        <span class="sp-subtle-badge" t-esc="selectedComparison.approved ? 'Approved baseline' : 'Draft forecast'"/>
-                                        <span t-att-class="selectedComparison.actual_provisional ? 'sp-comparison-provisional' : ''" t-esc="comparisonStatus"/>
-                                    </div>
-                                    <div t-if="selectedComparison" class="sp-table-scroll">
-                                        <table class="sp-report-table"><thead><tr><th>Measure</th><th>Forecast</th><th>Actual</th><th>Variance</th></tr></thead><tbody>
-                                            <tr><td t-esc="comparisonMetric.label"/><td t-esc="chartValue(selectedComparison.forecast[state.chartConfig.comparison_metric], comparisonMetric.unit)"/><td t-esc="chartValue(comparisonActualValue, comparisonMetric.unit)"/><td t-esc="chartValue(comparisonDifference, comparisonMetric.unit)"/></tr>
+                                    <div t-if="state.data.comparisons.length" class="sp-chart-container sp-chart-short"><canvas t-ref="comparison" role="img" t-att-aria-label="'Forecast versus Actual: ' + comparisonMetric.label + ' for selected academic years. Exact figures are in the table below.'"/></div>
+                                    <p t-else="" class="sp-chart-empty">No linked forecast years match the selected years.</p>
+                                    <div t-if="state.data.comparisons.length" class="sp-table-scroll">
+                                        <table class="sp-report-table"><thead><tr><th>Academic year</th><th>Forecast</th><th>Actual</th><th>Variance</th><th>Status</th></tr></thead><tbody>
+                                            <tr t-foreach="state.data.comparisons" t-as="comparison" t-key="comparison.id"><td><t t-esc="comparison.name"/> <span class="sp-subtle-badge" t-esc="comparison.approved ? 'Approved baseline' : 'Draft forecast'"/></td><td t-esc="chartValue(comparison.forecast[state.chartConfig.comparison_metric], comparisonMetric.unit)"/><td t-esc="chartValue(comparisonActualValue(comparison), comparisonMetric.unit)"/><td t-esc="chartValue(comparisonDifference(comparison), comparisonMetric.unit)"/><td t-att-class="comparison.actual_provisional ? 'sp-comparison-provisional' : ''" t-esc="comparisonStatus(comparison)"/></tr>
                                         </tbody></table>
                                     </div>
                                 </article>

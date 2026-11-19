@@ -1,3 +1,5 @@
+from datetime import date
+
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
@@ -121,12 +123,19 @@ class SchoolDashboard(models.Model):
             for enrollment in year.enrollment_ids:
                 add('students_by_grade', enrollment.grade_level_id.name, enrollment.student_count)
                 add('revenue_by_grade', enrollment.grade_level_id.name, enrollment.revenue_total)
+            use_details = year.dataset_type == 'forecast' and year.detailed_expenses_created
             for category, expenses in year.expense_value_ids.grouped('expense_category_id').items():
-                add('expense_category_spend', category.name, expenses._category_amount_total())
-            if year.dataset_type == 'forecast' and year.detailed_expense_seed_ids:
+                if use_details:
+                    expenses = expenses.filtered(
+                        lambda row: row.cost_bucket != 'operating' or not row.prediction_input_mode
+                    )
+                if expenses:
+                    add('expense_category_spend', category.name, expenses._category_amount_total())
+            if use_details and year.detailed_expense_seed_ids:
                 selected = year._detailed_expense_catalog() & year.detailed_expense_seed_ids
                 for seed, amount, _note in year._detailed_expense_amounts(selected):
                     if amount:
+                        add('expense_category_spend', seed.category_seed_id.name, amount)
                         add('detailed_expense_category_spend', seed.category_seed_id.name, amount)
             for salary in year.employment_salary_ids:
                 position = salary.staff_position_id.title
@@ -147,10 +156,14 @@ class SchoolDashboard(models.Model):
         }
 
     @api.model
-    def _comparison_data(self, school):
-        forecasts = self.env['school.academic.years'].search([
-            ('school_id', '=', school.id), ('dataset_type', '=', 'forecast'),
-        ], order='start_date, academic_year_name, id')
+    def _comparison_data(self, years, dataset):
+        if dataset == 'forecast':
+            forecasts = years
+        elif dataset == 'actual':
+            forecasts = years.mapped('forecast_year_id')
+        else:
+            forecasts = years.browse()
+        forecasts = forecasts.sorted(key=lambda year: (year.start_date or date.min, year.academic_year_name or '', year.id))
         result = []
         for forecast in forecasts:
             actual = forecast.actual_year_ids[:1]
@@ -175,9 +188,14 @@ class SchoolDashboard(models.Model):
         return result
 
     @api.model
-    def get_dashboard(self, school_id=False, dataset='forecast', year_id=False):
+    def get_dashboard(self, school_id=False, dataset='forecast', year_id=False, year_ids=None):
         if dataset not in ('forecast', 'actual', 'legacy'):
             raise ValidationError(_('Select Forecast, Actual or Unclassified data.'))
+        if year_ids is not None and (
+            year_id or not isinstance(year_ids, list)
+            or any(type(value) is not int or value <= 0 for value in year_ids)
+        ):
+            raise ValidationError(_('Select valid academic years.'))
         schools = self.search([], order='name, id')
         school = schools.filtered(lambda record: record.id == school_id) if school_id else schools[:1]
         if school_id and not school:
@@ -185,8 +203,9 @@ class SchoolDashboard(models.Model):
         years = self.env['school.academic.years'].search([
             ('school_id', '=', school.id), ('dataset_type', '=', dataset),
         ], order='start_date, academic_year_name, id') if school else self.env['school.academic.years']
-        selected = years.filtered(lambda year: year.id == year_id) if year_id else years
-        if year_id and not selected:
+        selected_ids = set(year_ids) if year_ids is not None else {year_id} if year_id else set(years.ids)
+        selected = years.filtered(lambda year: year.id in selected_ids)
+        if selected_ids - set(selected.ids):
             raise ValidationError(_('The selected year is unavailable for this school and dataset.'))
 
         rows = []
@@ -229,7 +248,10 @@ class SchoolDashboard(models.Model):
                 for metric in BREAKDOWN_METRICS
             ],
             'breakdowns': self._chart_breakdowns(selected),
-            'comparisons': self._comparison_data(school) if school else [],
+            'expense_breakdown_uses_details': any(
+                year.dataset_type == 'forecast' and year.detailed_expenses_created for year in selected
+            ),
+            'comparisons': self._comparison_data(selected, dataset),
             'chart_preferences': self._normalized_chart_preferences(school.sudo().dashboard_chart_preferences or {}),
             'can_save_chart_preferences': self.env.user.has_group('base.group_system'),
         }
