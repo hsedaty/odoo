@@ -1,6 +1,6 @@
 {
     'name': 'School Budget & Planning System',
-    'version': '19.0.1.52.0',
+    'version': '19.0.1.53.0',
     'category': 'Education',
     'summary': 'Live calculation engine for school budgeting, staffing, asset and room planning',
     'description': """

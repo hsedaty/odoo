@@ -119,11 +119,13 @@ class SchoolDashboard(models.Model):
             label = label or _('Uncategorized')
             values[metric][label] = values[metric].get(label, 0) + amount
 
+        use_details = any(
+            year.dataset_type == 'forecast' and year.detailed_expenses_created for year in years
+        )
         for year in years:
             for enrollment in year.enrollment_ids:
                 add('students_by_grade', enrollment.grade_level_id.name, enrollment.student_count)
                 add('revenue_by_grade', enrollment.grade_level_id.name, enrollment.revenue_total)
-            use_details = year.dataset_type == 'forecast' and year.detailed_expenses_created
             for category, expenses in year.expense_value_ids.grouped('expense_category_id').items():
                 if use_details:
                     expenses = expenses.filtered(
@@ -131,7 +133,7 @@ class SchoolDashboard(models.Model):
                     )
                 if expenses:
                     add('expense_category_spend', category.name, expenses._category_amount_total())
-            if use_details and year.detailed_expense_seed_ids:
+            if year.dataset_type == 'forecast' and year.detailed_expenses_created and year.detailed_expense_seed_ids:
                 selected = year._detailed_expense_catalog() & year.detailed_expense_seed_ids
                 for seed, amount, _note in year._detailed_expense_amounts(selected):
                     if amount:

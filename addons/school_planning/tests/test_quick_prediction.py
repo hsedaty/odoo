@@ -220,7 +220,6 @@ class TestQuickPrediction(TransactionCase):
         ])
         self.assertEqual(first.get_detailed_expense_list()['pending'], 1)
         self.assertEqual(self.school._chart_breakdowns(first | second)['expense_category_spend'], [
-            {'label': 'Manual Expenses', 'value': 2700},
             {'label': 'Accreditation', 'value': 2500},
             {'label': 'Digital Resources', 'value': 500},
             {'label': 'Other expenses', 'value': 100},
