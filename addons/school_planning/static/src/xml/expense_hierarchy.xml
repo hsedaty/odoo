@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="school_planning.ExpenseHierarchy">
+        <div class="o_school_expense_hierarchy">
+            <Pager t-if="list.count > list.limit" t-props="pagerProps"/>
+            <section t-foreach="groups" t-as="group" t-key="group.id" class="o_school_expense_category">
+                <div class="o_school_expense_heading">
+                    <button type="button" class="o_school_expense_toggle" t-att-id="'school_expense_heading_' + props.name + '_' + group.id" t-att-aria-controls="'school_expense_content_' + props.name + '_' + group.id" t-att-aria-expanded="!!expansion[group.id]" t-on-click="() => this.toggle(group)">
+                        <i t-att-class="expansion[group.id] ? 'fa fa-chevron-down' : 'fa fa-chevron-right'" aria-hidden="true"/>
+                        <span class="o_school_expense_name" t-esc="group.name"/>
+                    </button>
+                    <div class="o_school_expense_total_editor">
+                        <t t-if="group.direct.length === 1">
+                            <label class="visually-hidden" t-att-for="'school_expense_total_' + group.direct[0].id">Category total</label>
+                            <CategoryTotalField record="group.direct[0]" name="'amount'" total="group.total" id="'school_expense_total_' + group.direct[0].id" readonly="props.readonly"/>
+                            <button t-if="!props.readonly" type="button" class="btn btn-link btn-sm text-muted" title="Remove category total from this year" t-on-click="() => this.remove(group.direct[0])"><i class="fa fa-trash-o" aria-hidden="true"/></button>
+                        </t>
+                        <t t-elif="!group.direct.length and canCreate and !props.readonly">
+                            <button type="button" class="btn btn-link btn-sm" t-on-click="() => this.addCategoryAmount(group)">Set total</button>
+                        </t>
+                        <t t-else="">
+                            <span class="o_school_expense_total" t-esc="formatAmount(group.total)"/>
+                        </t>
+                    </div>
+                </div>
+                <div t-if="expansion[group.id]" class="o_school_expense_content" role="region" t-att-id="'school_expense_content_' + props.name + '_' + group.id" t-att-aria-labelledby="'school_expense_heading_' + props.name + '_' + group.id">
+                    <div t-foreach="group.items" t-as="record" t-key="record.id" class="o_school_expense_line o_school_expense_item">
+                        <label t-att-for="'school_expense_amount_' + record.id" t-esc="record.data.expense_item_id.display_name"/>
+                        <FloatField record="record" name="'amount'" id="'school_expense_amount_' + record.id" readonly="props.readonly"/>
+                        <button t-if="!props.readonly" type="button" class="btn btn-link btn-sm text-muted" title="Remove item from this year" t-on-click="() => this.remove(record)"><i class="fa fa-trash-o" aria-hidden="true"/></button>
+                    </div>
+                    <div t-if="canCreate" class="o_school_expense_selector o_school_expense_item_selector">
+                        <i class="fa fa-level-up fa-rotate-90" aria-hidden="true"/>
+                        <Many2XAutocomplete t-key="composer.revision" t-props="autocompleteProps(group)"/>
+                    </div>
+                </div>
+            </section>
+            <div t-if="canCreate" class="o_school_expense_selector o_school_expense_new">
+                <i class="fa fa-plus" aria-hidden="true"/>
+                <Many2XAutocomplete t-key="composer.revision" t-props="autocompleteProps()"/>
+            </div>
+            <div class="o_school_expense_footer"><span>Total Expenses</span><strong t-esc="formatAmount(groups.reduce((total, group) => total + group.total, 0))"/></div>
+        </div>
+    </t>
+</templates>

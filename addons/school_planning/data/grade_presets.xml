@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="grade_group_preset_kg" model="school.grade.group.preset">
+        <field name="name">KG</field>
+        <field name="display_order">10</field>
+    </record>
+    <record id="grade_group_preset_primary" model="school.grade.group.preset">
+        <field name="name">Primary</field>
+        <field name="display_order">20</field>
+    </record>
+    <record id="grade_group_preset_elementary" model="school.grade.group.preset">
+        <field name="name">Elementary</field>
+        <field name="display_order">30</field>
+    </record>
+    <record id="grade_group_preset_middle" model="school.grade.group.preset">
+        <field name="name">Middle School</field>
+        <field name="display_order">40</field>
+    </record>
+    <record id="grade_group_preset_high" model="school.grade.group.preset">
+        <field name="name">High School</field>
+        <field name="display_order">50</field>
+    </record>
+
+    <record id="grade_level_preset_kg1" model="school.grade.level.preset">
+        <field name="name">KG1</field>
+        <field name="group_preset_id" ref="grade_group_preset_kg"/>
+        <field name="sort_order">10</field>
+    </record>
+    <record id="grade_level_preset_kg2" model="school.grade.level.preset">
+        <field name="name">KG2</field>
+        <field name="group_preset_id" ref="grade_group_preset_kg"/>
+        <field name="sort_order">20</field>
+    </record>
+    <record id="grade_level_preset_grade_1" model="school.grade.level.preset">
+        <field name="name">Grade 1</field>
+        <field name="group_preset_id" ref="grade_group_preset_primary"/>
+        <field name="sort_order">30</field>
+    </record>
+    <record id="grade_level_preset_grade_2" model="school.grade.level.preset">
+        <field name="name">Grade 2</field>
+        <field name="group_preset_id" ref="grade_group_preset_primary"/>
+        <field name="sort_order">40</field>
+    </record>
+    <record id="grade_level_preset_grade_3" model="school.grade.level.preset">
+        <field name="name">Grade 3</field>
+        <field name="group_preset_id" ref="grade_group_preset_primary"/>
+        <field name="sort_order">50</field>
+    </record>
+    <record id="grade_level_preset_grade_4" model="school.grade.level.preset">
+        <field name="name">Grade 4</field>
+        <field name="group_preset_id" ref="grade_group_preset_elementary"/>
+        <field name="sort_order">60</field>
+    </record>
+    <record id="grade_level_preset_grade_5" model="school.grade.level.preset">
+        <field name="name">Grade 5</field>
+        <field name="group_preset_id" ref="grade_group_preset_elementary"/>
+        <field name="sort_order">70</field>
+    </record>
+    <record id="grade_level_preset_grade_6" model="school.grade.level.preset">
+        <field name="name">Grade 6</field>
+        <field name="group_preset_id" ref="grade_group_preset_elementary"/>
+        <field name="sort_order">80</field>
+    </record>
+    <record id="grade_level_preset_grade_7" model="school.grade.level.preset">
+        <field name="name">Grade 7</field>
+        <field name="group_preset_id" ref="grade_group_preset_middle"/>
+        <field name="sort_order">90</field>
+    </record>
+    <record id="grade_level_preset_grade_8" model="school.grade.level.preset">
+        <field name="name">Grade 8</field>
+        <field name="group_preset_id" ref="grade_group_preset_middle"/>
+        <field name="sort_order">100</field>
+    </record>
+    <record id="grade_level_preset_grade_9" model="school.grade.level.preset">
+        <field name="name">Grade 9</field>
+        <field name="group_preset_id" ref="grade_group_preset_high"/>
+        <field name="sort_order">110</field>
+    </record>
+    <record id="grade_level_preset_grade_10" model="school.grade.level.preset">
+        <field name="name">Grade 10</field>
+        <field name="group_preset_id" ref="grade_group_preset_high"/>
+        <field name="sort_order">120</field>
+    </record>
+    <record id="grade_level_preset_grade_11" model="school.grade.level.preset">
+        <field name="name">Grade 11</field>
+        <field name="group_preset_id" ref="grade_group_preset_high"/>
+        <field name="sort_order">130</field>
+    </record>
+    <record id="grade_level_preset_grade_12" model="school.grade.level.preset">
+        <field name="name">Grade 12</field>
+        <field name="group_preset_id" ref="grade_group_preset_high"/>
+        <field name="sort_order">140</field>
+    </record>
+</odoo>

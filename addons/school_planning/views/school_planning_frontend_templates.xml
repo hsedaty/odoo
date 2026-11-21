@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="school_budgeting_frontend_page" name="School Budgeting Frontend">
+        <t t-call="web.layout">
+            <div id="root"></div>
+
+            <!--
+                Development bridge:
+                - Start the attached frontend with `npm run dev` (or pnpm) on port 8443.
+                - This page keeps Odoo authentication/session while using the custom React UI.
+            -->
+            <script type="module">
+                import RefreshRuntime from 'http://127.0.0.1:8443/@react-refresh'
+                RefreshRuntime.injectIntoGlobalHook(window)
+                window.$RefreshReg$ = () => {}
+                window.$RefreshSig$ = () => (type) => type
+                window.__vite_plugin_react_preamble_installed__ = true
+            </script>
+            <script type="module" src="http://127.0.0.1:8443/@vite/client"></script>
+            <script type="module" src="http://127.0.0.1:8443/src/main.tsx"></script>
+        </t>
+    </template>
+</odoo>

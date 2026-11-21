@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="asset_school_default_inline_backend" model="ir.asset">
+        <field name="name">School Planning Inline School Default Patch</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/js/school_default_inline.js</field>
+        <field name="active" eval="True"/>
+        <field name="sequence" eval="1000"/>
+    </record>
+    <record id="asset_school_quick_prediction_mode_js" model="ir.asset">
+        <field name="name">School Quick Prediction Header Toggle</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/js/quick_prediction_mode.js</field>
+        <field name="active" eval="True"/>
+        <field name="sequence" eval="1001"/>
+    </record>
+    <record id="asset_school_quick_prediction_mode_xml" model="ir.asset">
+        <field name="name">School Quick Prediction Header Template</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/xml/quick_prediction_mode.xml</field>
+        <field name="active" eval="True"/>
+        <field name="sequence" eval="1002"/>
+    </record>
+    <record id="asset_school_quick_prediction_mode_css" model="ir.asset">
+        <field name="name">School Quick Prediction Year Table</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/css/quick_prediction_mode.css</field>
+        <field name="active" eval="True"/>
+        <field name="sequence" eval="1003"/>
+    </record>
+    <record id="asset_school_forecast_actual_css" model="ir.asset">
+        <field name="name">School Forecast Actual Workspace Styles</field>
+        <field name="bundle">web.assets_backend</field>
+        <field name="directive">append</field>
+        <field name="path">school_planning/static/src/css/forecast_actual.css</field>
+        <field name="sequence">1004</field>
+    </record>
+    <record id="asset_school_expense_hierarchy_js" model="ir.asset">
+        <field name="name">School Expense Hierarchy</field><field name="bundle">web.assets_backend</field>
+        <field name="path">school_planning/static/src/js/expense_hierarchy.js</field><field name="sequence">1005</field>
+    </record>
+    <record id="asset_school_expense_hierarchy_xml" model="ir.asset">
+        <field name="name">School Expense Hierarchy Template</field><field name="bundle">web.assets_backend</field>
+        <field name="path">school_planning/static/src/xml/expense_hierarchy.xml</field><field name="sequence">1006</field>
+    </record>
+    <record id="asset_school_income_accordion_js" model="ir.asset">
+        <field name="name">School Income Grade Accordion</field><field name="bundle">web.assets_backend</field>
+        <field name="path">school_planning/static/src/js/income_accordion.js</field><field name="sequence">1007</field>
+    </record>
+    <record id="asset_school_income_accordion_xml" model="ir.asset">
+        <field name="name">School Income Grade Accordion Template</field><field name="bundle">web.assets_backend</field>
+        <field name="path">school_planning/static/src/xml/income_accordion.xml</field><field name="sequence">1008</field>
+    </record>
+</odoo>

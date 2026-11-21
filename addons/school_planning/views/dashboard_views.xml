@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_school_dashboard" model="ir.actions.client">
+        <field name="name">School Dashboard</field>
+        <field name="tag">school_planning.dashboard</field>
+    </record>
+    <menuitem id="menu_school_dashboard" name="Dashboard" parent="menu_school_planning_root" action="action_school_dashboard" sequence="0"/>
+    <record id="menu_school_planning_root" model="ir.ui.menu">
+        <field name="action" ref="action_school_dashboard"/>
+    </record>
+    <record id="action_school_budgeting_new_ui" model="ir.actions.act_url">
+        <field name="name">School Dashboard</field>
+        <field name="url">/odoo/action-school_planning.action_school_dashboard</field>
+    </record>
+    <record id="menu_school_budgeting_new_ui" model="ir.ui.menu">
+        <field name="active" eval="False"/>
+    </record>
+    <record id="view_school_dashboard_school_form" model="ir.ui.view">
+        <field name="name">school.dashboard.school.form</field>
+        <field name="model">school.schools</field>
+        <field name="inherit_id" ref="view_school_schools_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="attributes"><attribute name="class">o_school_form</attribute></xpath>
+            <xpath expr="//header" position="inside"><button name="action_open_dashboard" type="object" string="Dashboard" icon="fa-th-large"/></xpath>
+            <xpath expr="//div[hasclass('oe_title')]" position="after">
+                <div class="sp-workspace-help">Start with subjects and grades, then create a prediction. Use the dashboard to review results and the year workspace to enter actuals.</div>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_school_dashboard_workspace" model="ir.ui.view">
+        <field name="name">school.dashboard.workspace</field>
+        <field name="model">school.academic.years</field>
+        <field name="inherit_id" ref="view_school_year_workspace"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[hasclass('oe_title')]" position="after">
+                <div class="sp-workspace-help">Work through the tabs below. Totals update as you save. Forecasts are plans; actuals track real results. Freeze a forecast only when it is approved.</div>
+            </xpath>
+            <xpath expr="//div[hasclass('row', 'g-3')]" position="attributes">
+                <attribute name="class">row g-3 sp-workspace-metrics</attribute>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_school_dashboard_prediction_setup" model="ir.ui.view">
+        <field name="name">school.dashboard.prediction.setup</field>
+        <field name="model">school.prediction.quick.setup.wizard</field>
+        <field name="inherit_id" ref="view_school_prediction_quick_setup_wizard_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group[1]" position="before">
+                <div class="sp-workspace-help"><strong>Build your forecast in three steps.</strong> Choose the period, enter students and fees for each year, then review expenses before generating. You can refine the results in each year's workspace.</div>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_school_schools_kanban" model="ir.ui.view">
+        <field name="name">school.schools.kanban</field>
+        <field name="model">school.schools</field>
+        <field name="arch" type="xml">
+            <kanban class="o_school_cards">
+                <field name="name"/><field name="country_id"/><field name="currency_id"/><field name="subject_ids"/>
+                <templates><t t-name="card">
+                    <div class="sp-school-card">
+                        <div class="sp-school-card-icon"><i class="fa fa-graduation-cap" title="School" aria-hidden="true"/></div>
+                        <h2 class="fs-4 fw-bold mt-3"><field name="name"/></h2>
+                        <div class="text-muted mb-3"><field name="country_id"/> · <field name="currency_id"/></div>
+                        <p class="small text-muted" invisible="subject_ids">Configure subjects to create your first prediction.</p>
+                        <div class="d-flex flex-wrap gap-2 mt-auto">
+                            <button name="action_open_dashboard" type="object" class="btn btn-primary" string="Dashboard"/>
+                            <button name="action_open_subject_setup" type="object" class="btn btn-light" string="Configure Subjects" invisible="subject_ids"/>
+                            <button name="action_open_quick_prediction" type="object" class="btn btn-light" string="New Prediction" invisible="not subject_ids"/>
+                        </div>
+                    </div>
+                </t></templates>
+            </kanban>
+        </field>
+    </record>
+    <record id="action_school_schools" model="ir.actions.act_window">
+        <field name="view_mode">kanban,list,form</field>
+    </record>
+</odoo>

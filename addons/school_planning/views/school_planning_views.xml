@@ -1,0 +1,1214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ======================================================= -->
+    <!-- 1. GRAPH & PIVOT VIEWS (BI & ANALYTICS)                  -->
+    <!-- ======================================================= -->
+
+    <record id="view_school_grade_enrollment_graph" model="ir.ui.view">
+        <field name="name">school.grade.enrollment.graph</field>
+        <field name="model">school.grade.enrollment</field>
+        <field name="arch" type="xml">
+            <graph string="Student Enrollments" type="bar" sample="1">
+                <field name="grade_level_id"/>
+                <field name="student_count" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_school_grade_enrollment_pivot" model="ir.ui.view">
+        <field name="name">school.grade.enrollment.pivot</field>
+        <field name="model">school.grade.enrollment</field>
+        <field name="arch" type="xml">
+            <pivot string="Enrollment Analysis" sample="1">
+                <field name="academic_year_id" type="row"/>
+                <field name="grade_level_id" type="col"/>
+                <field name="student_count" type="measure"/>
+                <field name="class_count" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_school_subject_distribution_pivot" model="ir.ui.view">
+        <field name="name">school.subject.distribution.pivot</field>
+        <field name="model">school.subject.distribution</field>
+        <field name="arch" type="xml">
+            <pivot string="Teaching Load Analysis" sample="1">
+                <field name="academic_year_id" type="row"/>
+                <field name="subject_id" type="row"/>
+                <field name="grade_level_id" type="col"/>
+                <field name="total_teaching_hours" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+
+    <!-- ======================================================= -->
+    <!-- 2. MASTER DATA VIEWS                                    -->
+    <!-- ======================================================= -->
+
+    <!-- Schools -->
+    <record id="view_school_schools_tree" model="ir.ui.view">
+        <field name="name">school.schools.tree</field>
+        <field name="model">school.schools</field>
+        <field name="arch" type="xml">
+            <list string="Schools">
+                <field name="name" class="fw-bold"/>
+                <field name="country_id" options="{'no_create': True, 'no_open': True}"/>
+                <field name="currency_id" options="{'no_create': True, 'no_open': True}"/>
+                <field name="subject_ids" column_invisible="1"/>
+                <button name="action_open_subject_setup" type="object" string="Configure Subjects" icon="fa-book"/>
+                <button name="action_open_quick_prediction" type="object" string="Quick Prediction" icon="fa-line-chart" invisible="not subject_ids"/>
+                <button name="action_open_financial_summary" type="object" string="Financial Summary" icon="fa-bar-chart"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_school_schools_form" model="ir.ui.view">
+        <field name="name">school.schools.form</field>
+        <field name="model">school.schools</field>
+        <field name="arch" type="xml">
+            <form string="School">
+                <header>
+                    <button name="action_open_subject_setup" type="object" string="Configure Subjects" icon="fa-book" class="btn-primary" invisible="subject_ids"/>
+                    <button name="action_open_subject_setup" type="object" string="Configure Subjects" icon="fa-book" invisible="not subject_ids"/>
+                    <button name="action_open_quick_prediction" type="object" string="Quick Prediction" icon="fa-line-chart" class="btn-primary" invisible="not subject_ids"/>
+                    <button name="action_open_financial_summary" type="object" string="Financial Summary" icon="fa-bar-chart"/>
+                    <button name="action_open_grade_setup" type="object" string="Configure Grades" icon="fa-graduation-cap"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="School Name..."/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="country_id" options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
+                        </group>
+                        <group>
+                            <field name="currency_id" required="1" context="{'active_test': False}" options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
+                            <field name="curriculum_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit': True}"/>
+                        </group>
+                    </group>
+                    <separator string="Subjects"/>
+                    <field name="subject_ids" nolabel="1" context="{'default_school_id': id}">
+                        <list editable="bottom">
+                            <field name="display_order" widget="handle"/>
+                            <field name="name"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Academic Years -->
+    <record id="view_school_academic_years_tree" model="ir.ui.view">
+        <field name="name">school.academic.years.tree</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <list string="Academic Years" editable="bottom">
+                <field name="school_id"/>
+                <field name="academic_year_name" class="fw-bold"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Master Config Dictionaries -->
+    <record id="view_school_grade_groups_tree" model="ir.ui.view"><field name="name">school.grade.groups.tree</field><field name="model">school.grade.groups</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/></list></field></record>
+    <record id="view_school_grade_levels_tree" model="ir.ui.view"><field name="name">school.grade.levels.tree</field><field name="model">school.grade.levels</field><field name="arch" type="xml"><list editable="bottom"><field name="sort_order" widget="handle"/><field name="school_id"/><field name="group_id"/><field name="name"/><field name="max_students_per_class_override"/><field name="max_students_per_class"/></list></field></record>
+
+    <record id="view_school_grade_setup_wizard_form" model="ir.ui.view">
+        <field name="name">school.grade.setup.wizard.form</field>
+        <field name="model">school.grade.setup.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Configure Grade Structure">
+                <group>
+                    <field name="school_id" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="group_preset_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit': True}"/>
+                    <field name="level_preset_ids" widget="many2many_tags" domain="[('group_preset_id', 'in', group_preset_ids)]" options="{'no_create': True, 'no_create_edit': True}"/>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Add Selected Grades" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_school_subject_setup_wizard_form" model="ir.ui.view">
+        <field name="name">school.subject.setup.wizard.form</field>
+        <field name="model">school.subject.setup.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Configure Subjects">
+                <group>
+                    <field name="school_id" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="curriculum_id" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="subject_preset_ids" widget="many2many_tags" domain="[('curriculum_id', '=', curriculum_id), ('active', '=', True)]" options="{'no_create': True, 'no_create_edit': True}"/>
+                </group>
+                <group string="Curriculum Reference">
+                    <field name="curriculum_description" readonly="1"/>
+                    <field name="source_url" widget="url" readonly="1"/>
+                    <field name="verified_on" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Add Selected Subjects" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_school_subject_preset_list" model="ir.ui.view">
+        <field name="name">school.subject.preset.list</field>
+        <field name="model">school.subject.preset</field>
+        <field name="arch" type="xml">
+            <list string="Curriculum Subject Catalog" editable="bottom">
+                <field name="curriculum_id" options="{'no_create': True, 'no_open': True}"/>
+                <field name="name" string="Subject"/>
+                <field name="category"/>
+                <field name="display_order" string="Order" optional="hide"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_school_subject_preset_search" model="ir.ui.view">
+        <field name="name">school.subject.preset.search</field>
+        <field name="model">school.subject.preset</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="curriculum_id"/>
+                <field name="name" string="Subject"/>
+                <field name="category"/>
+                <filter name="archived" string="Archived" domain="[('active', '=', False)]"/>
+                <filter name="group_by_curriculum" string="Curriculum" context="{'group_by': 'curriculum_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_prediction_quick_setup_wizard_form" model="ir.ui.view">
+        <field name="name">school.prediction.quick.setup.wizard.form</field>
+        <field name="model">school.prediction.quick.setup.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Quick Prediction Setup" js_class="school_quick_prediction">
+                <sheet>
+                    <field name="extreme_efficiency" invisible="1"/>
+                    <field name="extreme_expenses_initialized" invisible="1"/>
+                    <group>
+                        <field name="school_id" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="start_year" options="{'enable_formatting': False}"/>
+                        <field name="forecast_years"/>
+                        <field name="income_tax_percent"/>
+                        <field name="fee_increase_percent"/>
+                        <field name="salary_increase_percent" invisible="extreme_efficiency"/>
+                    </group>
+                    <group string="Class &amp; Teaching Inputs" invisible="extreme_efficiency">
+                        <field name="max_students_per_class_input"/>
+                        <field name="subject_hours_per_class" readonly="1"/>
+                        <field name="teaching_load_hours"/>
+                    </group>
+                    <group string="Editable Staffing Constraints" invisible="extreme_efficiency">
+                        <field name="assistant_principal_per_students"/>
+                        <field name="janitor_per_students"/>
+                        <field name="principal_fixed_count"/>
+                        <field name="it_fixed_count"/>
+                        <field name="admission_officer_fixed_count"/>
+                        <field name="front_desk_fixed_count"/>
+                        <field name="student_affairs_fixed_count"/>
+                        <field name="nurse_fixed_count"/>
+                        <field name="hr_fixed_count"/>
+                        <field name="accountant_fixed_count"/>
+                        <field name="finance_officer_fixed_count"/>
+                    </group>
+                    <group string="Manual Input Per Year">
+                        <field name="line_ids" nolabel="1" colspan="2" class="o_school_prediction_years">
+                            <list editable="bottom" create="false" delete="false">
+                                <field name="year_index" readonly="1" width="80px"/>
+                                <field name="year_label" readonly="1" width="200px"/>
+                                <field name="student_count" width="120px"/>
+                                <field name="annual_fee_per_student" string="Annual Fee / Student" width="200px"/>
+                                <field name="teacher_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="principal_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="assistant_principal_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="it_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="janitor_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="admission_officer_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="front_desk_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="student_affairs_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="nurse_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="hr_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="accountant_count" column_invisible="parent.extreme_efficiency"/>
+                                <field name="finance_officer_count" column_invisible="parent.extreme_efficiency"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Manual Salaries Per Year &amp; Staff Type" invisible="extreme_efficiency">
+                        <field name="year_salary_line_ids" nolabel="1">
+                            <list editable="bottom" create="false" delete="false">
+                                <field name="year_index" readonly="1"/>
+                                <field name="year_label" readonly="1"/>
+                                <field name="teacher_monthly_salary"/>
+                                <field name="principal_monthly_salary"/>
+                                <field name="assistant_principal_monthly_salary"/>
+                                <field name="it_monthly_salary"/>
+                                <field name="janitor_monthly_salary"/>
+                                <field name="admission_officer_monthly_salary"/>
+                                <field name="front_desk_monthly_salary"/>
+                                <field name="student_affairs_monthly_salary"/>
+                                <field name="nurse_monthly_salary"/>
+                                <field name="hr_monthly_salary"/>
+                                <field name="accountant_monthly_salary"/>
+                                <field name="finance_officer_monthly_salary"/>
+                                <field name="months_paid"/>
+                                <field name="bonus"/>
+                            </list>
+                        </field>
+                    </group>
+                    <separator string="All Expenses"/>
+                    <group>
+                        <field name="repeating_expense_line_ids" nolabel="1" colspan="2" invisible="extreme_efficiency" context="{'default_input_mode': 'normal', 'default_trend': 'revenue_stable'}">
+                            <list editable="bottom" create="true" delete="true">
+                                <field name="name"/>
+                                <field name="start_year_index"/>
+                                <field name="trend" widget="school_revenue_expense_trend"/>
+                                <field name="base_annual_amount" string="Base Revenue %"/>
+                                <field name="annual_change_percent" string="Annual Change (pp)" readonly="trend == 'revenue_stable'"/>
+                                <field name="input_mode" column_invisible="True"/>
+                            </list>
+                        </field>
+                        <field name="extreme_expense_line_ids" nolabel="1" colspan="2" invisible="not extreme_efficiency" context="{'default_input_mode': 'extreme', 'default_trend': 'revenue_stable'}">
+                            <list editable="bottom" create="true" delete="true">
+                                <field name="name"/>
+                                <field name="start_year_index"/>
+                                <field name="trend" widget="school_revenue_expense_trend"/>
+                                <field name="base_annual_amount" string="Base Revenue %"/>
+                                <field name="annual_change_percent" string="Annual Change (pp)" readonly="trend == 'revenue_stable'"/>
+                                <field name="input_mode" column_invisible="True"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Existing Payroll" invisible="not extreme_efficiency or not existing_payroll_warning">
+                        <field name="existing_payroll_warning" nolabel="1" readonly="1" colspan="2"/>
+                        <field name="replace_existing_payroll"/>
+                    </group>
+                    <group string="What This Will Auto-Generate" invisible="extreme_efficiency">
+                        <div class="text-muted">
+                            Grade and subject setup from presets, academic years, enrollment distribution, subject distribution (5 hours weekly per subject per class), fee values, percentage-based operating expenses, and salary baseline will be generated from your manual yearly Students and Fee inputs.
+                        </div>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_load_demo_data" type="object" string="Load Demo Data" class="btn-secondary" confirm="Replace the current yearly inputs, one-time expenses and active mode's expense inputs with demo data?"/>
+                    <button name="action_apply" type="object" string="Generate Prediction Baseline" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_school_financial_summary_email_wizard_form" model="ir.ui.view">
+        <field name="name">school.financial.summary.email.wizard.form</field>
+        <field name="model">school.financial.summary.email.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Send Financial Summary PDF">
+                <group>
+                    <field name="school_id" invisible="1"/>
+                    <field name="academic_year_ids" widget="many2many_tags" domain="[('school_id', '=', school_id)]" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="mail_server_id" groups="base.group_system" required="1" options="{'no_create': True, 'no_open': True}"/>
+                    <field name="email_to" placeholder="client1@example.com, client2@example.com"/>
+                    <field name="subject"/>
+                    <field name="body_html" widget="html"/>
+                </group>
+                <footer>
+                    <button name="action_send_email" type="object" string="Send Email" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="view_school_subjects_tree" model="ir.ui.view"><field name="name">school.subjects.tree</field><field name="model">school.subjects</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/></list></field></record>
+    <record id="view_school_tax_rules_tree" model="ir.ui.view"><field name="name">school.tax.rules.tree</field><field name="model">school.tax.rules</field><field name="arch" type="xml"><list editable="bottom"><field name="school_id" column_invisible="context.get('default_school_id', False)"/><field name="name"/><field name="percentage" widget="percentage"/></list></field></record>
+    <record id="view_school_tax_rules_form" model="ir.ui.view"><field name="name">school.tax.rules.form</field><field name="model">school.tax.rules</field><field name="arch" type="xml"><form string="Tax Type"><sheet><group><field name="school_id" readonly="context.get('default_school_id', False)"/><field name="name"/><field name="percentage" widget="percentage"/></group></sheet></form></field></record>
+    <record id="view_school_fee_types_tree" model="ir.ui.view"><field name="name">school.fee.types.tree</field><field name="model">school.fee.types</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="is_optional"/><field name="is_taxable" widget="boolean_toggle"/><field name="tax_rule_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}" options="{'no_create': True, 'no_create_edit': True}"/></list></field></record>
+    <record id="view_school_expense_categories_tree" model="ir.ui.view"><field name="name">school.expense.categories.tree</field><field name="model">school.expense.categories</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id" column_invisible="context.get('default_school_id', False)"/><field name="name"/><button name="action_open_expense_category" type="object" icon="fa-pencil-square-o" title="Edit Category &amp; Items"/><button name="action_delete_expense_category" type="object" icon="fa-trash" title="Delete Category &amp; Items" confirm="Delete this expense category, all its expense items, and their recorded expenses in every academic year? This cannot be undone. Categories used in frozen baselines cannot be deleted."/></list></field></record>
+    <record id="view_school_expense_categories_form" model="ir.ui.view">
+        <field name="name">school.expense.categories.form</field><field name="model">school.expense.categories</field>
+        <field name="arch" type="xml">
+            <form string="Expense Category"><sheet>
+                <group><field name="school_id" readonly="context.get('default_school_id', False)"/><field name="name"/><field name="cost_bucket" invisible="context.get('default_cost_bucket', False)"/><field name="display_order" invisible="1"/></group>
+                <separator string="Expense Items"/>
+                <field name="expense_item_ids" nolabel="1" context="{'default_school_id': school_id, 'default_display_order': 10}">
+                    <list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id" column_invisible="1"/><field name="name"/></list>
+                </field>
+            </sheet></form>
+        </field>
+    </record>
+    <record id="view_school_expense_items_tree" model="ir.ui.view"><field name="name">school.expense.items.tree</field><field name="model">school.expense.items</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id" column_invisible="context.get('default_school_id', False)"/><field name="expense_category_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id, 'default_display_order': 10}" options="{'no_quick_create': True}"/><field name="name"/></list></field></record>
+    <record id="view_school_expense_items_form" model="ir.ui.view">
+        <field name="name">school.expense.items.form</field><field name="model">school.expense.items</field>
+        <field name="arch" type="xml">
+            <form string="Expense Item"><sheet><group><field name="school_id" readonly="context.get('default_school_id', False)"/><field name="expense_category_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id, 'default_display_order': 10}" options="{'no_quick_create': True}"/><field name="name"/><field name="display_order" invisible="1"/></group></sheet></form>
+        </field>
+    </record>
+    <record id="view_school_staff_categories_tree" model="ir.ui.view"><field name="name">school.staff.categories.tree</field><field name="model">school.staff.categories</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/></list></field></record>
+
+    <!-- School-focused search panels -->
+    <record id="view_school_academic_years_search" model="ir.ui.view">
+        <field name="name">school.academic.years.search</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <search string="Academic Years">
+                <field name="academic_year_name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_grade_groups_search" model="ir.ui.view">
+        <field name="name">school.grade.groups.search</field>
+        <field name="model">school.grade.groups</field>
+        <field name="arch" type="xml">
+            <search string="Grade Groups">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_grade_levels_search" model="ir.ui.view">
+        <field name="name">school.grade.levels.search</field>
+        <field name="model">school.grade.levels</field>
+        <field name="arch" type="xml">
+            <search string="Grade Levels">
+                <field name="name"/>
+                <field name="school_id"/>
+                <field name="group_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_subjects_search" model="ir.ui.view">
+        <field name="name">school.subjects.search</field>
+        <field name="model">school.subjects</field>
+        <field name="arch" type="xml">
+            <search string="Subjects">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_fee_types_search" model="ir.ui.view">
+        <field name="name">school.fee.types.search</field>
+        <field name="model">school.fee.types</field>
+        <field name="arch" type="xml">
+            <search string="Fee Types">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_expense_categories_search" model="ir.ui.view">
+        <field name="name">school.expense.categories.search</field>
+        <field name="model">school.expense.categories</field>
+        <field name="arch" type="xml">
+            <search string="Expense Categories">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1" select="one"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_expense_items_search" model="ir.ui.view">
+        <field name="name">school.expense.items.search</field>
+        <field name="model">school.expense.items</field>
+        <field name="arch" type="xml">
+            <search string="Expense Items">
+                <field name="name"/>
+                <field name="school_id"/>
+                <field name="expense_category_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1" select="one"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_staff_categories_search" model="ir.ui.view">
+        <field name="name">school.staff.categories.search</field>
+        <field name="model">school.staff.categories</field>
+        <field name="arch" type="xml">
+            <search string="Staff Categories">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <!-- Staff Positions (Kanban Included) -->
+    <record id="view_school_staff_positions_kanban" model="ir.ui.view">
+        <field name="name">school.staff.positions.kanban</field>
+        <field name="model">school.staff.positions</field>
+        <field name="arch" type="xml">
+            <kanban class="o_kanban_mobile">
+                <field name="title"/>
+                <field name="staff_category_id"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click p-2">
+                            <strong class="fs-6"><field name="title"/></strong>
+                            <div class="mt-2"><span class="badge text-bg-info"><field name="staff_category_id"/></span></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+    <record id="view_school_staff_positions_tree" model="ir.ui.view"><field name="name">school.staff.positions.tree</field><field name="model">school.staff.positions</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="staff_category_id"/><field name="title"/></list></field></record>
+
+    <record id="view_school_staff_positions_search" model="ir.ui.view">
+        <field name="name">school.staff.positions.search</field>
+        <field name="model">school.staff.positions</field>
+        <field name="arch" type="xml">
+            <search string="Staff Positions">
+                <field name="title"/>
+                <field name="school_id"/>
+                <field name="staff_category_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <!-- Additional Master Definitions -->
+    <record id="view_school_staffing_rules_tree" model="ir.ui.view"><field name="name">school.staffing.rules.tree</field><field name="model">school.staffing.rules</field><field name="arch" type="xml"><list editable="bottom"><field name="school_id"/><field name="staff_position_id"/><field name="calculation_method"/><field name="parameter_value"/></list></field></record>
+    <record id="view_school_room_types_tree" model="ir.ui.view"><field name="name">school.room.types.tree</field><field name="model">school.room.types</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="max_students_per_class_default"/></list></field></record>
+    <record id="view_school_asset_items_tree" model="ir.ui.view"><field name="name">school.asset.items.tree</field><field name="model">school.asset.items</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="asset_type"/><field name="unit_of_measure"/></list></field></record>
+    <record id="view_school_room_templates_tree" model="ir.ui.view"><field name="name">school.room.templates.tree</field><field name="model">school.room.templates</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="room_type_id"/><field name="name"/></list></field></record>
+    <record id="view_school_room_template_items_tree" model="ir.ui.view"><field name="name">school.room.template.items.tree</field><field name="model">school.room.template.items</field><field name="arch" type="xml"><list editable="bottom"><field name="room_template_id"/><field name="asset_item_id"/><field name="quantity"/></list></field></record>
+
+    <record id="view_school_staffing_rules_search" model="ir.ui.view">
+        <field name="name">school.staffing.rules.search</field>
+        <field name="model">school.staffing.rules</field>
+        <field name="arch" type="xml">
+            <search string="Staffing Rules">
+                <field name="school_id"/>
+                <field name="staff_position_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_room_types_search" model="ir.ui.view">
+        <field name="name">school.room.types.search</field>
+        <field name="model">school.room.types</field>
+        <field name="arch" type="xml">
+            <search string="Room Types">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_asset_items_search" model="ir.ui.view">
+        <field name="name">school.asset.items.search</field>
+        <field name="model">school.asset.items</field>
+        <field name="arch" type="xml">
+            <search string="Asset Items">
+                <field name="name"/>
+                <field name="school_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_room_templates_search" model="ir.ui.view">
+        <field name="name">school.room.templates.search</field>
+        <field name="model">school.room.templates</field>
+        <field name="arch" type="xml">
+            <search string="Room Templates">
+                <field name="name"/>
+                <field name="school_id"/>
+                <field name="room_type_id"/>
+                <searchpanel>
+                    <field name="school_id" string="Schools" enable_counters="1"/>
+                </searchpanel>
+            </search>
+        </field>
+    </record>
+
+
+    <!-- ======================================================= -->
+    <!-- 3. OPERATIONAL YEAR DATA & CALCULATED RESULTS           -->
+    <!-- ======================================================= -->
+
+    <!-- Grade Enrollment (Kanban + List + Form) -->
+    <record id="view_school_grade_enrollment_kanban" model="ir.ui.view">
+        <field name="name">school.grade.enrollment.kanban</field>
+        <field name="model">school.grade.enrollment</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="academic_year_id" class="o_kanban_dashboard" sample="1">
+                <field name="grade_level_id"/>
+                <field name="student_count"/>
+                <field name="class_count"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong class="fs-5 text-primary"><field name="grade_level_id"/></strong>
+                                <span class="badge text-bg-success"><field name="class_count"/> Classes</span>
+                            </div>
+                            <div class="text-center mt-2">
+                                <div class="text-muted small">Students: <span class="fw-bold text-dark"><field name="student_count"/></span></div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_school_grade_enrollment_tree" model="ir.ui.view">
+        <field name="name">school.grade.enrollment.tree</field>
+        <field name="model">school.grade.enrollment</field>
+        <field name="arch" type="xml">
+            <list string="Grade Enrollments" sample="1">
+                <field name="academic_year_id"/>
+                <field name="grade_level_id"/>
+                <field name="student_count" sum="Total Students"/>
+                <field name="max_students_per_class" readonly="1"/>
+                <field name="class_count" sum="Total Classes" widget="badge" decoration-success="class_count &gt; 0"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_school_grade_enrollment_form" model="ir.ui.view">
+        <field name="name">school.grade.enrollment.form</field>
+        <field name="model">school.grade.enrollment</field>
+        <field name="arch" type="xml">
+            <form string="Grade Enrollment">
+                <sheet>
+                    <group>
+                        <group string="Context">
+                            <field name="academic_year_id"/>
+                            <field name="grade_level_id"/>
+                        </group>
+                        <group string="Calculations">
+                            <field name="student_count"/>
+                            <field name="max_students_per_class" readonly="1"/>
+                            <field name="class_count"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Other Year Data Lists -->
+    <record id="view_school_subject_distribution_tree" model="ir.ui.view"><field name="name">school.subject.distribution.tree</field><field name="model">school.subject.distribution</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="subject_id"/><field name="weekly_hours" sum="Total Hours"/><field name="credits"/><field name="total_teaching_hours" sum="Total Load" widget="badge"/></list></field></record>
+    <record id="view_school_fee_values_tree" model="ir.ui.view"><field name="name">school.fee.values.tree</field><field name="model">school.fee.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="fee_type_id"/><field name="amount" sum="Total Amount"/></list></field></record>
+    <record id="view_school_expense_values_tree" model="ir.ui.view"><field name="name">school.expense.values.tree</field><field name="model">school.expense.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="expense_category_id"/><field name="expense_item_id" domain="[('expense_category_id', '=', expense_category_id)]"/><field name="cost_bucket" optional="hide"/><field name="amount"/></list></field></record>
+    <record id="view_school_employment_salaries_tree" model="ir.ui.view"><field name="name">school.employment.salaries.tree</field><field name="model">school.employment.salaries</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="staff_position_id"/><field name="employee_count" sum="Total Employees"/><field name="monthly_salary"/><field name="months_paid"/><field name="bonus"/></list></field></record>
+    <record id="view_school_asset_prices_tree" model="ir.ui.view"><field name="name">school.asset.prices.tree</field><field name="model">school.asset.prices</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="asset_item_id"/><field name="unit_price"/></list></field></record>
+    <record id="view_school_asset_overview_tree" model="ir.ui.view">
+        <field name="name">school.asset.overview.tree</field>
+        <field name="model">school.asset.prices</field>
+        <field name="arch" type="xml">
+            <list string="Asset Overview" create="false" edit="false" delete="false">
+                <field name="academic_year_id"/>
+                <field name="asset_item_id"/>
+                <field name="owned_quantity" sum="Total Quantity"/>
+                <field name="unit_price"/>
+                <field name="asset_total_value" sum="Total Asset Value"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_school_asset_transactions_tree" model="ir.ui.view"><field name="name">school.asset.transactions.tree</field><field name="model">school.asset.transactions</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="asset_item_id"/><field name="transaction_type"/><field name="quantity" sum="Total Qty"/><field name="transaction_date"/><field name="notes"/></list></field></record>
+    <record id="view_school_room_plan_tree" model="ir.ui.view"><field name="name">school.room.plan.tree</field><field name="model">school.room.plan</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="room_type_id"/><field name="existing_rooms_manual_override" widget="boolean_toggle"/><field name="existing_rooms" sum="Total Existing"/><field name="calculated_new_rooms" sum="Total Calc"/><field name="manual_new_rooms" sum="Total Manual"/><field name="total_new_rooms" sum="Total New" readonly="1" optional="show"/><field name="new_rooms_asset_cost" sum="New Rooms Asset Expense" readonly="1" optional="show"/></list></field></record>
+    <record id="view_school_expense_values_graph_pie" model="ir.ui.view">
+        <field name="name">school.expense.values.graph.pie</field>
+        <field name="model">school.expense.values</field>
+        <field name="arch" type="xml">
+            <graph string="Deductions Breakdown" type="pie">
+                <field name="expense_category_id" type="row"/>
+                <field name="total_contribution" type="measure"/>
+            </graph>
+        </field>
+    </record>
+    <record id="view_school_fee_values_graph_bar" model="ir.ui.view">
+        <field name="name">school.fee.values.graph.bar</field>
+        <field name="model">school.fee.values</field>
+        <field name="arch" type="xml">
+            <graph string="Revenue Analysis" type="bar">
+                <field name="grade_level_id" type="row"/>
+                <field name="fee_type_id" type="col"/>
+                <field name="gross_revenue_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+    <record id="action_school_expense_values_pie_chart" model="ir.actions.act_window">
+        <field name="name">Deduction Pie Chart</field>
+        <field name="res_model">school.expense.values</field>
+        <field name="view_mode">graph,list,form</field>
+        <field name="view_id" ref="view_school_expense_values_graph_pie"/>
+    </record>
+    <record id="action_school_fee_values_revenue_chart" model="ir.actions.act_window">
+        <field name="name">Revenue Chart</field>
+        <field name="res_model">school.fee.values</field>
+        <field name="view_mode">graph,list,form</field>
+        <field name="view_id" ref="view_school_fee_values_graph_bar"/>
+    </record>
+    <record id="view_school_expansion_project_rooms_tree" model="ir.ui.view"><field name="name">school.expansion.project.rooms.tree</field><field name="model">school.expansion.project.rooms</field><field name="arch" type="xml"><list editable="bottom"><field name="expansion_project_id" domain="[('academic_year_id', '=', context.get('default_academic_year_id'))] if context.get('default_academic_year_id') else []"/><field name="room_type_id" domain="[('school_id', '=', context.get('default_school_id'))] if context.get('default_school_id') else []"/><field name="room_count" sum="Total Rooms"/></list></field></record>
+
+    <!-- Expansion Projects -->
+    <record id="view_school_expansion_projects_kanban" model="ir.ui.view">
+        <field name="name">school.expansion.projects.kanban</field>
+        <field name="model">school.expansion.projects</field>
+        <field name="arch" type="xml">
+            <kanban class="o_kanban_mobile" sample="1">
+                <field name="name"/>
+                <field name="academic_year_id"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click p-2">
+                            <strong class="fs-6 text-dark"><field name="name"/></strong>
+                            <div class="text-muted small my-1"><field name="start_date"/> - <field name="end_date"/></div>
+                            <div><span class="badge text-bg-secondary"><field name="academic_year_id"/></span></div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_school_expansion_projects_tree" model="ir.ui.view">
+        <field name="name">school.expansion.projects.tree</field>
+        <field name="model">school.expansion.projects</field>
+        <field name="arch" type="xml">
+            <list string="Expansion Projects">
+                <field name="academic_year_id"/>
+                <field name="name"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_school_academic_years_financial_summary_tree" model="ir.ui.view">
+        <field name="name">school.academic.years.financial.summary.tree</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <list string="Financial Summary">
+                <field name="school_id"/>
+                <field name="academic_year_name"/>
+                <field name="fee_gross_total" sum="Gross Revenue"/>
+                <field name="total_deductions" sum="Total Deductions"/>
+                <field name="net_budget" sum="Profit" decoration-success="net_budget &gt;= 0" decoration-danger="net_budget &lt; 0"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_school_academic_years_financial_summary_kanban" model="ir.ui.view">
+        <field name="name">school.academic.years.financial.summary.kanban</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="school_id" class="o_kanban_dashboard" sample="1">
+                <field name="school_id"/>
+                <field name="academic_year_name"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="fee_gross_total"/>
+                <field name="tax_deductions_total"/>
+                <field name="fee_total"/>
+                <field name="operating_cost_total"/>
+                <field name="total_deductions"/>
+                <field name="net_budget"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click p-3 d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <div class="text-muted small"><field name="school_id"/></div>
+                                    <strong class="fs-5 text-dark"><field name="academic_year_name"/></strong>
+                                    <div class="text-muted small mt-1">
+                                        <field name="start_date"/> - <field name="end_date"/>
+                                    </div>
+                                </div>
+                                <span t-attf-class="badge #{record.net_budget.raw_value &gt;= 0 ? 'text-bg-success' : 'text-bg-danger'}">
+                                    <t t-if="record.net_budget.raw_value &gt;= 0">Profitable</t>
+                                    <t t-else="">At Risk</t>
+                                </span>
+                            </div>
+
+                            <div class="row g-2 text-center">
+                                <div class="col-4">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted small">Gross Revenue</div>
+                                        <div class="fw-bold text-success"><field name="fee_gross_total"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted small">Deductions</div>
+                                        <div class="fw-bold text-danger"><field name="total_deductions"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted small">Profit</div>
+                                        <div t-attf-class="fw-bold #{record.net_budget.raw_value &gt;= 0 ? 'text-success' : 'text-danger'}"><field name="net_budget"/></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-2 small">
+                                <div class="col-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted">Net Revenue After Tax</div>
+                                        <div class="fw-semibold"><field name="fee_total"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted">Operating Cost</div>
+                                        <div class="fw-semibold"><field name="operating_cost_total"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="border rounded p-2 h-100">
+                                        <div class="text-muted">Tax Deductions</div>
+                                        <div class="fw-semibold"><field name="tax_deductions_total"/></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_school_academic_years_financial_summary_search" model="ir.ui.view">
+        <field name="name">school.academic.years.financial.summary.search</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <search string="Financial Summary">
+                <field name="school_id"/>
+                <field name="academic_year_name"/>
+                <filter name="group_school" string="School" context="{'group_by': 'school_id'}"/>
+                <filter name="group_year" string="Academic Year" context="{'group_by': 'academic_year_name'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_school_academic_years_financial_summary_form" model="ir.ui.view">
+        <field name="name">school.academic.years.financial.summary.form</field>
+        <field name="model">school.academic.years</field>
+        <field name="arch" type="xml">
+            <form string="Financial Summary">
+                <sheet>
+                    <div class="oe_title mb-3">
+                        <h1><field name="academic_year_name" readonly="1"/></h1>
+                        <div class="text-muted">
+                            <field name="school_id" readonly="1"/> | <field name="start_date" readonly="1"/> - <field name="end_date" readonly="1"/>
+                        </div>
+                    </div>
+                    <div class="oe_button_box" name="button_box">
+                        <button type="object" name="action_open_grade_metrics" class="oe_stat_button" icon="fa-users">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Students</span>
+                                <span class="o_stat_text">Enrollment Chart</span>
+                            </div>
+                        </button>
+                        <button type="object" name="action_open_deductions_pie" class="oe_stat_button" icon="fa-pie-chart">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Deductions</span>
+                                <span class="o_stat_text">Pie Chart</span>
+                            </div>
+                        </button>
+                        <button type="object" name="action_open_revenue_chart" class="oe_stat_button" icon="fa-line-chart">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Revenue</span>
+                                <span class="o_stat_text">By Grade / Fee</span>
+                            </div>
+                        </button>
+                        <button type="object" name="action_print_financial_summary_pdf" class="oe_stat_button" icon="fa-file-pdf-o">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Export</span>
+                                <span class="o_stat_text">Print PDF</span>
+                            </div>
+                        </button>
+                        <button type="object" name="action_open_financial_summary_email_wizard" class="oe_stat_button" icon="fa-envelope">
+                            <div class="o_stat_info">
+                                <span class="o_stat_value">Share</span>
+                                <span class="o_stat_text">Email PDF</span>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="row g-3 border-top border-bottom py-3 mb-3">
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="text-muted small mb-1">Gross Income</div>
+                            <div class="fs-4 fw-bold text-success"><field name="fee_gross_total" readonly="1"/></div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="text-muted small mb-1">Tax + Operating Outflow</div>
+                            <div class="fs-4 fw-bold"><field name="total_deductions" readonly="1"/></div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="text-muted small mb-1">Startup Investment</div>
+                            <div class="fs-4 fw-bold"><field name="startup_cost_total" readonly="1"/></div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="text-muted small mb-1">Net Budget</div>
+                            <div class="fs-4 fw-bold text-success" invisible="net_budget &lt; 0"><field name="net_budget" readonly="1"/></div>
+                            <div class="fs-4 fw-bold text-danger" invisible="net_budget &gt;= 0"><field name="net_budget" readonly="1"/></div>
+                        </div>
+                    </div>
+                    <group>
+                        <group string="Money In">
+                            <field name="fee_gross_total" string="Gross Fee Income" readonly="1"/>
+                            <field name="tax_deductions_total" string="Less: Income Tax" readonly="1"/>
+                            <field name="fee_total" string="Income After Tax" readonly="1" class="fw-bold"/>
+                            <field name="tax_pct" string="Tax Rate %" readonly="1"/>
+                        </group>
+                        <group string="Money Out">
+                            <field name="expense_total" string="Expenses" readonly="1"/>
+                            <field name="salary_total" string="Payroll" readonly="1"/>
+                            <field name="new_rooms_expense_total" string="New Room Equipment" readonly="1"/>
+                            <field name="operating_cost_total" string="Operating Outflow" readonly="1" class="fw-bold"/>
+                            <field name="startup_cost_total" string="Startup Investment" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Balance">
+                            <field name="operating_profit" string="Balance After Operations" readonly="1"/>
+                            <field name="net_budget" string="Balance After Startup Investment" readonly="1" class="fw-bold"/>
+                            <field name="net_margin_pct" readonly="1"/>
+                        </group>
+                        <group string="Per Student">
+                            <field name="total_enrolled_students" string="Students" readonly="1"/>
+                            <field name="revenue_per_student_avg" string="Income After Tax / Student" readonly="1"/>
+                            <field name="cost_per_student_avg" string="Tax + Operating Cost / Student" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Income Details" name="income_details">
+                            <field name="fee_value_ids" nolabel="1" readonly="1">
+                                <list create="false" edit="false" delete="false" limit="200">
+                                    <field name="grade_level_id"/>
+                                    <field name="fee_type_id"/>
+                                    <field name="enrolled_students" string="Students"/>
+                                    <field name="amount" string="Fee / Student"/>
+                                    <field name="gross_revenue_amount" string="Gross" sum="Gross Income"/>
+                                    <field name="tax_amount" string="Tax" sum="Tax"/>
+                                    <field name="revenue_amount" string="Net Income" sum="Income After Tax"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Expense Details" name="expense_details">
+                            <field name="dataset_type" invisible="1"/>
+                            <widget name="school_detailed_expenses" invisible="dataset_type != 'forecast'"/>
+                            <field name="expense_value_ids" nolabel="1" readonly="1" invisible="dataset_type == 'forecast'">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="expense_category_id"/>
+                                    <field name="expense_item_id"/>
+                                    <field name="amount" string="Amount"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Payroll Details" name="payroll_details">
+                            <field name="employment_salary_ids" nolabel="1" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="staff_position_id"/>
+                                    <field name="employee_count"/>
+                                    <field name="monthly_salary"/>
+                                    <field name="months_paid"/>
+                                    <field name="bonus"/>
+                                    <field name="annual_cost" sum="Payroll"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Revenue/Cost By Grade Level">
+                            <field name="enrollment_ids" readonly="1">
+                                <list>
+                                    <field name="grade_group_id"/>
+                                    <field name="grade_level_id"/>
+                                    <field name="student_count" sum="Students"/>
+                                    <field name="revenue_total" sum="Revenue"/>
+                                    <field name="revenue_per_student"/>
+                                    <field name="cost_total" sum="Cost"/>
+                                    <field name="cost_per_student"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Revenue/Cost By Grade Group">
+                            <field name="enrollment_ids" readonly="1">
+                                <list default_group_by="grade_group_id">
+                                    <field name="grade_group_id"/>
+                                    <field name="grade_level_id"/>
+                                    <field name="student_count" sum="Students"/>
+                                    <field name="revenue_total" sum="Revenue"/>
+                                    <field name="revenue_per_student"/>
+                                    <field name="cost_total" sum="Cost"/>
+                                    <field name="cost_per_student"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Efficiency Metrics">
+                            <group>
+                                <group string="Revenue Per Student">
+                                    <field name="revenue_per_student_grade_level_avg" readonly="1"/>
+                                    <field name="revenue_per_student_grade_group_avg" readonly="1"/>
+                                </group>
+                                <group string="Cost Per Student">
+                                    <field name="cost_per_student_grade_level_avg" readonly="1"/>
+                                    <field name="cost_per_student_grade_group_avg" readonly="1"/>
+                                    <field name="deductions_pct" readonly="1"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_school_expansion_projects_form" model="ir.ui.view">
+        <field name="name">school.expansion.projects.form</field>
+        <field name="model">school.expansion.projects</field>
+        <field name="arch" type="xml">
+            <form string="Expansion Project">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Project Name..."/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="academic_year_id"/>
+                            <field name="start_date"/>
+                            <field name="end_date"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Description">
+                            <field name="description"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+
+    <!-- ======================================================= -->
+    <!-- 4. ACTIONS                                              -->
+    <!-- ======================================================= -->
+
+    <record id="action_school_schools" model="ir.actions.act_window"><field name="name">Schools</field><field name="res_model">school.schools</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_academic_years" model="ir.actions.act_window"><field name="name">Academic Years</field><field name="res_model">school.academic.years</field><field name="view_mode">list,form</field><field name="view_id" ref="view_school_academic_years_tree"/><field name="search_view_id" ref="view_school_academic_years_search"/></record>
+    <record id="action_school_grade_setup_wizard" model="ir.actions.act_window">
+        <field name="name">Configure Grades</field>
+        <field name="res_model">school.grade.setup.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_school_grade_setup_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+    <record id="action_school_subject_setup_wizard" model="ir.actions.act_window">
+        <field name="name">Configure Subjects</field>
+        <field name="res_model">school.subject.setup.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_school_subject_setup_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+    <record id="action_school_prediction_quick_setup_wizard" model="ir.actions.act_window">
+        <field name="name">Quick Prediction Setup</field>
+        <field name="res_model">school.prediction.quick.setup.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_school_prediction_quick_setup_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+    <record id="action_school_grade_groups" model="ir.actions.act_window"><field name="name">Grade Groups</field><field name="res_model">school.grade.groups</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_grade_groups_search"/></record>
+    <record id="action_school_grade_levels" model="ir.actions.act_window"><field name="name">Grade Levels</field><field name="res_model">school.grade.levels</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_grade_levels_search"/></record>
+    <record id="action_school_subjects" model="ir.actions.act_window"><field name="name">Subjects</field><field name="res_model">school.subjects</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_subjects_search"/></record>
+    <record id="action_school_subject_preset_catalog" model="ir.actions.act_window">
+        <field name="name">Curriculum Subject Catalog</field>
+        <field name="res_model">school.subject.preset</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_school_subject_preset_list"/>
+        <field name="search_view_id" ref="view_school_subject_preset_search"/>
+        <field name="context">{'search_default_group_by_curriculum': 1}</field>
+        <field name="help" type="html">
+            <p>Add subjects to a shared curriculum list, with or without a category. Archive or delete subjects you no longer want offered. Changes affect future subject setup, not subjects already added to a school.</p>
+        </field>
+    </record>
+    <record id="action_school_tax_rules" model="ir.actions.act_window"><field name="name">Tax Rules</field><field name="res_model">school.tax.rules</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_fee_types" model="ir.actions.act_window"><field name="name">Fee Types</field><field name="res_model">school.fee.types</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_fee_types_search"/></record>
+    <record id="action_school_expense_categories" model="ir.actions.act_window"><field name="name">Expense Categories</field><field name="res_model">school.expense.categories</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_expense_categories_search"/></record>
+    <record id="action_school_expense_items" model="ir.actions.act_window"><field name="name">Expense Items</field><field name="res_model">school.expense.items</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_expense_items_search"/></record>
+    <record id="action_school_staff_categories" model="ir.actions.act_window"><field name="name">Staff Categories</field><field name="res_model">school.staff.categories</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_staff_categories_search"/></record>
+    <record id="action_school_staff_positions" model="ir.actions.act_window"><field name="name">Staff Positions</field><field name="res_model">school.staff.positions</field><field name="view_mode">kanban,list,form</field><field name="search_view_id" ref="view_school_staff_positions_search"/></record>
+    <record id="action_school_staffing_rules" model="ir.actions.act_window"><field name="name">Staffing Rules</field><field name="res_model">school.staffing.rules</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_staffing_rules_search"/></record>
+    <record id="action_school_room_types" model="ir.actions.act_window"><field name="name">Room Types</field><field name="res_model">school.room.types</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_room_types_search"/></record>
+    <record id="action_school_asset_items" model="ir.actions.act_window"><field name="name">Asset Items</field><field name="res_model">school.asset.items</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_asset_items_search"/></record>
+    <record id="action_school_room_templates" model="ir.actions.act_window"><field name="name">Room Templates</field><field name="res_model">school.room.templates</field><field name="view_mode">list,form</field><field name="search_view_id" ref="view_school_room_templates_search"/></record>
+    <record id="action_school_room_template_items" model="ir.actions.act_window"><field name="name">Room Template Items</field><field name="res_model">school.room.template.items</field><field name="view_mode">list,form</field></record>
+
+    <record id="action_school_grade_enrollment" model="ir.actions.act_window">
+        <field name="name">Enrollment Dashboard</field>
+        <field name="res_model">school.grade.enrollment</field>
+        <field name="view_mode">kanban,list,graph,pivot,form</field>
+    </record>
+
+    <record id="action_school_subject_distribution" model="ir.actions.act_window">
+        <field name="name">Teaching Load Analytics</field>
+        <field name="res_model">school.subject.distribution</field>
+        <field name="view_mode">list,pivot,form</field>
+    </record>
+
+    <record id="action_school_fee_values" model="ir.actions.act_window"><field name="name">Fee Values</field><field name="res_model">school.fee.values</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_expense_values" model="ir.actions.act_window"><field name="name">Expense Values</field><field name="res_model">school.expense.values</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_asset_overview" model="ir.actions.act_window">
+        <field name="name">Asset Overview</field>
+        <field name="res_model">school.asset.prices</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_school_asset_overview_tree"/>
+    </record>
+    <record id="action_school_financial_summary" model="ir.actions.act_window">
+        <field name="name">Financial Summary</field>
+        <field name="res_model">school.academic.years</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="view_id" ref="view_school_academic_years_financial_summary_kanban"/>
+        <field name="search_view_id" ref="view_school_academic_years_financial_summary_search"/>
+        <field name="context">{'search_default_group_school': 1}</field>
+    </record>
+    <record id="action_school_enrollment_revenue_prediction" model="ir.actions.act_url">
+        <field name="name">Enrollment and Revenue Prediction</field>
+        <field name="url">/school_planning/enrollment-revenue-prediction</field>
+        <field name="target">self</field>
+    </record>
+    <record id="action_school_financial_summary_pdf_export" model="ir.actions.server">
+        <field name="name">Export Financial Summary PDF</field>
+        <field name="model_id" ref="model_school_academic_years"/>
+        <field name="binding_model_id" ref="model_school_academic_years"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_print_financial_summary_pdf()</field>
+    </record>
+    <record id="action_school_financial_summary_email_send" model="ir.actions.server">
+        <field name="name">Email Financial Summary PDF</field>
+        <field name="model_id" ref="model_school_academic_years"/>
+        <field name="binding_model_id" ref="model_school_academic_years"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_open_financial_summary_email_wizard()</field>
+    </record>
+    <record id="action_school_budgeting_new_ui" model="ir.actions.act_url">
+        <field name="name">School Budgeting (New UI)</field>
+        <field name="url">/school_planning/new-ui</field>
+        <field name="target">self</field>
+    </record>
+    <record id="action_school_employment_salaries" model="ir.actions.act_window"><field name="name">Salaries Budget</field><field name="res_model">school.employment.salaries</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_asset_prices" model="ir.actions.act_window"><field name="name">Asset Prices</field><field name="res_model">school.asset.prices</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_asset_transactions" model="ir.actions.act_window"><field name="name">Asset Transactions</field><field name="res_model">school.asset.transactions</field><field name="view_mode">list,form</field></record>
+    <record id="action_school_room_plan" model="ir.actions.act_window"><field name="name">Room Plan</field><field name="res_model">school.room.plan</field><field name="view_mode">list,form</field></record>
+    
+    <record id="action_school_expansion_projects" model="ir.actions.act_window">
+        <field name="name">Expansion Projects</field><field name="res_model">school.expansion.projects</field><field name="view_mode">kanban,list,form</field>
+    </record>
+    
+    <record id="action_school_expansion_project_rooms" model="ir.actions.act_window"><field name="name">Project Rooms</field><field name="res_model">school.expansion.project.rooms</field><field name="view_mode">list,form</field></record>
+
+
+    <!-- ======================================================= -->
+    <!-- 5. MENU STRUCTURE                                       -->
+    <!-- ======================================================= -->
+
+    <menuitem id="menu_school_planning_root" name="School Budgeting" action="action_school_financial_summary" sequence="10"/>
+
+    <menuitem id="menu_school_planning_overview" name="Overview" parent="menu_school_planning_root" sequence="10"/>
+    <menuitem id="menu_school_financial_summary" name="Financial Summary" parent="menu_school_planning_overview" action="action_school_financial_summary" sequence="0"/>
+    <menuitem id="menu_school_prediction_quick_setup" name="Quick Prediction Setup" parent="menu_school_planning_overview" action="action_school_prediction_quick_setup_wizard" sequence="1"/>
+    <menuitem id="menu_school_enrollment_revenue_prediction" name="Enrollment and Revenue Prediction" parent="menu_school_planning_overview" action="action_school_enrollment_revenue_prediction" sequence="2"/>
+    <menuitem id="menu_school_budgeting_new_ui" name="School Budgeting (New UI)" parent="menu_school_planning_overview" action="action_school_budgeting_new_ui" sequence="3"/>
+
+    <menuitem id="menu_school_planning_operations" name="Planning Workflows" parent="menu_school_planning_root" sequence="20"/>
+    <menuitem id="menu_school_grade_enrollment" name="Enrollment Dashboard" parent="menu_school_planning_operations" action="action_school_grade_enrollment" sequence="1"/>
+    <menuitem id="menu_school_subject_distribution" name="Teaching Load" parent="menu_school_planning_operations" action="action_school_subject_distribution" sequence="2"/>
+    <menuitem id="menu_school_room_plan" name="Room Planning" parent="menu_school_planning_operations" action="action_school_room_plan" sequence="3"/>
+    <menuitem id="menu_school_expansion_projects" name="Expansion Projects" parent="menu_school_planning_operations" action="action_school_expansion_projects" sequence="4"/>
+    <menuitem id="menu_school_expansion_project_rooms" name="Project Rooms" parent="menu_school_planning_operations" action="action_school_expansion_project_rooms" sequence="5"/>
+
+    <menuitem id="menu_school_planning_financial" name="Financial Operations" parent="menu_school_planning_root" sequence="30"/>
+    <menuitem id="menu_school_fee_values" name="Revenue / Fees" parent="menu_school_planning_financial" action="action_school_fee_values" sequence="1"/>
+    <menuitem id="menu_school_expense_values" name="Operating Expenses" parent="menu_school_planning_financial" action="action_school_expense_values" sequence="2"/>
+    <menuitem id="menu_school_employment_salaries" name="Salaries Budget" parent="menu_school_planning_financial" action="action_school_employment_salaries" sequence="3"/>
+
+    <menuitem id="menu_school_planning_assets" name="Asset Management" parent="menu_school_planning_root" sequence="40"/>
+    <menuitem id="menu_school_asset_overview" name="Asset Overview" parent="menu_school_planning_assets" action="action_school_asset_overview" sequence="1"/>
+    <menuitem id="menu_school_asset_items" name="Asset Items" parent="menu_school_planning_assets" action="action_school_asset_items" sequence="2"/>
+    <menuitem id="menu_school_asset_prices" name="Asset Prices" parent="menu_school_planning_assets" action="action_school_asset_prices" sequence="3"/>
+    <menuitem id="menu_school_asset_transactions" name="Asset Transactions" parent="menu_school_planning_assets" action="action_school_asset_transactions" sequence="4"/>
+
+    <menuitem id="menu_school_planning_config" name="Setup" parent="menu_school_planning_root" sequence="100"/>
+    <menuitem id="menu_school_schools" name="Schools" parent="menu_school_planning_root" action="action_school_schools" sequence="5"/>
+    <menuitem id="menu_school_academic_years" name="Academic Years" parent="menu_school_planning_config" action="action_school_academic_years" sequence="2"/>
+
+    <menuitem id="menu_config_academic" name="Academic Setup" parent="menu_school_planning_config" sequence="10"/>
+    <menuitem id="menu_school_grade_setup" name="Configure Grades" parent="menu_config_academic" action="action_school_grade_setup_wizard" sequence="1"/>
+    <menuitem id="menu_school_grade_groups" name="Grade Groups" parent="menu_config_academic" action="action_school_grade_groups" sequence="2"/>
+    <menuitem id="menu_school_grade_levels" name="Grade Levels" parent="menu_config_academic" action="action_school_grade_levels" sequence="3"/>
+    <menuitem id="menu_school_subject_setup" name="Configure Subjects" parent="menu_config_academic" action="action_school_subject_setup_wizard" sequence="4"/>
+    <menuitem id="menu_school_subjects" name="Subjects" parent="menu_config_academic" action="action_school_subjects" sequence="5"/>
+    <menuitem id="menu_school_subject_preset_catalog" name="Curriculum Subject Catalog" parent="menu_config_academic" action="action_school_subject_preset_catalog" groups="base.group_system" sequence="6"/>
+
+    <menuitem id="menu_config_financial" name="Financial Setup" parent="menu_school_planning_config" sequence="20"/>
+    <menuitem id="menu_school_fee_types" name="Fee Types" parent="menu_config_financial" action="action_school_fee_types" sequence="1"/>
+    <menuitem id="menu_school_tax_rules" name="Tax Rules" parent="menu_config_financial" action="action_school_tax_rules" sequence="2"/>
+    <menuitem id="menu_school_expense_categories" name="Expense Categories" parent="menu_config_financial" action="action_school_expense_categories" sequence="3"/>
+    <menuitem id="menu_school_expense_items" name="Expense Items" parent="menu_config_financial" action="action_school_expense_items" sequence="4"/>
+
+    <menuitem id="menu_config_hr" name="HR Setup" parent="menu_school_planning_config" sequence="30"/>
+    <menuitem id="menu_school_staff_categories" name="Staff Categories" parent="menu_config_hr" action="action_school_staff_categories" sequence="1"/>
+    <menuitem id="menu_school_staff_positions" name="Staff Positions" parent="menu_config_hr" action="action_school_staff_positions" sequence="2"/>
+    <menuitem id="menu_school_staffing_rules" name="Staffing Rules" parent="menu_config_hr" action="action_school_staffing_rules" sequence="3"/>
+
+    <menuitem id="menu_config_infrastructure" name="Infrastructure Setup" parent="menu_school_planning_config" sequence="40"/>
+    <menuitem id="menu_school_room_types" name="Room Types" parent="menu_config_infrastructure" action="action_school_room_types" sequence="1"/>
+    <menuitem id="menu_school_room_templates" name="Room Templates" parent="menu_config_infrastructure" action="action_school_room_templates" sequence="3"/>
+    <menuitem id="menu_school_room_template_items" name="Room Template Items" parent="menu_config_infrastructure" action="action_school_room_template_items" sequence="4"/>
+
+</odoo>

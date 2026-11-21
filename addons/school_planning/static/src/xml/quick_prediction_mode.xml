@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="school_planning.ExpenseTrendField">
+        <div class="w-100" t-att-data-tooltip="trendHelp(value)" data-tooltip-delay="300">
+            <span t-if="props.readonly" t-esc="string" t-att-raw-value="value"/>
+            <SelectMenu t-else="" autoSort="false" class="'border-0'" menuClass="'o_field_selection_menu w-auto'" value="value" choices="choices" onSelect.bind="onChange" placeholder="props.placeholder" id="props.id" searchable="!isBottomSheet">
+                <t t-set-slot="choice" t-slot-scope="choice">
+                    <div class="w-100" t-att-data-tooltip="trendHelp(choice.data.value)" data-tooltip-delay="300" t-esc="choice.data.label"/>
+                </t>
+            </SelectMenu>
+        </div>
+    </t>
+    <t t-inherit="web.ActionDialog" t-inherit-mode="extension">
+        <xpath expr="//header" position="attributes">
+            <attribute name="t-att-style">quickPredictionHeader ? 'flex-wrap: wrap; gap: 8px;' : undefined</attribute>
+        </xpath>
+    </t>
+    <t t-inherit="web.ActionDialog.header" t-inherit-mode="extension">
+        <xpath expr="//h4" position="attributes">
+            <attribute name="t-att-style">quickPredictionHeader ? 'flex: 1 1 180px; min-width: 0;' : undefined</attribute>
+        </xpath>
+        <xpath expr="//h4" position="after">
+            <label t-if="quickPredictionHeader" class="form-check form-switch d-flex align-items-center gap-2 mb-0 me-3 flex-shrink-0">
+                <input class="form-check-input mt-0" type="checkbox" role="switch"
+                    aria-label="Extreme Efficiency"
+                    t-att-checked="quickPredictionHeader.record?.data.extreme_efficiency"
+                    t-att-disabled="!quickPredictionHeader.record || quickPredictionHeader.busy"
+                    t-on-change="toggleQuickPredictionMode"/>
+                <span class="small">Extreme Efficiency</span>
+            </label>
+        </xpath>
+    </t>
+</templates>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="school_planning.IncomeAccordionRows" t-inherit="web.ListRenderer.Rows" t-inherit-mode="primary">
+        <xpath expr="//t[@t-foreach='list.records']" position="replace">
+            <t t-foreach="gradeGroups" t-as="grade" t-key="grade.id">
+                <tr class="o_school_income_grade">
+                    <td t-att-colspan="nbCols" class="p-0">
+                        <button type="button" class="o_school_expense_heading" t-att-aria-expanded="!!isExpanded(grade)" t-on-click.stop="() => this.toggleGrade(grade)">
+                            <i t-att-class="isExpanded(grade) ? 'fa fa-chevron-down' : 'fa fa-chevron-right'" aria-hidden="true"/>
+                            <span class="o_school_expense_name" t-esc="grade.name"/>
+                        </button>
+                    </td>
+                </tr>
+                <t t-if="isExpanded(grade)">
+                    <t t-foreach="grade.records" t-as="record" t-key="record.id">
+                        <t t-call="{{ constructor.recordRowTemplate }}"/>
+                    </t>
+                </t>
+            </t>
+        </xpath>
+    </t>
+</templates>
