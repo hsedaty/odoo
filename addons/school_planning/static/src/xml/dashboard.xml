@@ -16,7 +16,7 @@
                 </header>
 
                 <section class="sp-filter-bar" aria-label="Dashboard filters">
-                    <label>School
+                    <label>School / branch
                         <select class="form-select" t-on-change="(ev) => this.changeFilter('schoolId', ev)" t-att-disabled="state.busy">
                             <option t-if="!state.data?.schools.length" value="">No schools yet</option>
                             <option t-foreach="state.data?.schools || []" t-as="school" t-key="school.id" t-att-value="school.id" t-att-selected="state.schoolId === school.id"><t t-esc="school.name"/></option>
@@ -68,7 +68,7 @@
                     <section t-else="" id="sp-insights-panel" role="tabpanel" t-att-aria-labelledby="state.tab === 'overview' ? 'sp-overview-tab' : 'sp-report-tab'">
                         <div t-if="provisional" class="alert alert-warning mt-3" role="status"><i class="fa fa-info-circle me-2" aria-hidden="true"/>Actuals are still in progress. These figures are provisional; unentered sections may show zero.</div>
                         <div class="sp-period-context">
-                            <span><strong t-esc="state.data.rows.length"/> <t t-if="state.data.rows.length === 1">academic year</t><t t-else="">academic years</t> · Financial totals cover the selected period. Students reflect the latest selected year.</span>
+                            <span><strong t-esc="state.data.rows.length"/> <t t-if="state.data.rows.length === 1">academic year</t><t t-else="">academic years</t> · Financial totals cover the selected period. <t t-if="state.data.combined_branches">Students reflect the latest selected year per branch or school.</t><t t-else="">Students reflect the latest selected year.</t></span>
                             <div class="sp-dashboard-actions">
                                 <button class="btn btn-sm btn-light" t-on-click="openSchool"><i class="fa fa-sliders me-2" aria-hidden="true"/>Report branding</button>
                                 <button class="btn btn-sm btn-light" t-on-click="exportPdf" t-att-disabled="state.tab === 'report' and !reportRows.length"><i class="fa fa-file-pdf-o me-2" aria-hidden="true"/>Export PDF</button>
@@ -94,10 +94,10 @@
                             <div class="sp-chart-grid">
                                 <article class="sp-dashboard-card sp-finance-card">
                                     <div class="sp-card-heading sp-chart-heading">
-                                        <div><h2>Trend</h2><p>Follow a measure across academic years · <t t-if="trendMetric.unit === 'money'" t-esc="state.data.currency"/><t t-elif="trendMetric.unit === 'percent'">%</t><t t-else="">count</t></p></div>
+                                        <div><h2>Trend</h2><p><t t-if="state.data.combined_branches">School and branch figures by academic year</t><t t-else="">Follow a measure across academic years</t> · <t t-if="trendMetric.unit === 'money'" t-esc="state.data.currency"/><t t-elif="trendMetric.unit === 'percent'">%</t><t t-else="">count</t></p></div>
                                         <div class="sp-chart-controls">
                                             <label><span class="visually-hidden">Trend metric</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('trend_metric', ev)"><option t-foreach="state.data.trend_metrics" t-as="metric" t-key="metric.key" t-att-value="metric.key" t-att-selected="state.chartConfig.trend_metric === metric.key" t-esc="metric.label"/></select></label>
-                                            <label><span class="visually-hidden">Trend chart style</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('trend_type', ev)"><option value="line" t-att-selected="state.chartConfig.trend_type === 'line'">Line</option><option value="bar" t-att-selected="state.chartConfig.trend_type === 'bar'">Bar</option></select></label>
+                                            <label t-if="!state.data.combined_branches"><span class="visually-hidden">Trend chart style</span><select class="form-select form-select-sm" t-on-change="(ev) => this.chartPreferenceChanged('trend_type', ev)"><option value="line" t-att-selected="state.chartConfig.trend_type === 'line'">Line</option><option value="bar" t-att-selected="state.chartConfig.trend_type === 'bar'">Bar</option></select></label>
                                         </div>
                                     </div>
                                     <div t-if="state.data.rows.length" class="sp-chart-container"><canvas t-ref="trend" role="img" t-att-aria-label="'Trend chart: ' + trendMetric.label + ' by academic year. Exact figures are in the table below.'"/></div>

@@ -49,6 +49,7 @@
                         </page>
                         <page string="Income">
                             <group invisible="dataset_type != 'actual'"><field name="income_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <widget name="school_detailed_incomes" invisible="dataset_type != 'forecast'"/>
                             <group invisible="dataset_type == 'actual'"><field name="annual_fee_input" readonly="baseline_locked"/></group>
                             <group string="Fee Entry" invisible="dataset_type != 'actual'">
                                 <group><field name="actual_fee_type_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}"/><field name="actual_fee_amount"/></group>
@@ -65,6 +66,13 @@
                         </page>
                         <page string="Expenses">
                             <group invisible="dataset_type != 'actual'"><field name="expenses_status" widget="radio" options="{'horizontal': True}"/></group>
+                            <group string="Tax Deduction">
+                                <field name="prediction_income_tax_percent" string="Tax Deduction %" invisible="dataset_type != 'forecast'" readonly="baseline_locked"/>
+                                <field name="tax_pct" string="Effective Tax %" invisible="dataset_type == 'forecast'" readonly="1"/>
+                                <field name="tax_deductions_total" string="Tax Deduction Amount" readonly="1"/>
+                                <div class="text-muted">Already deducted from gross income; not added to operating expenses again.</div>
+                                <button name="action_open_actual_tax_types" type="object" string="Manage Tax Types" icon="fa-percent" invisible="dataset_type != 'actual'"/>
+                            </group>
                             <widget name="school_detailed_expenses" invisible="dataset_type != 'forecast'"/>
                             <field name="operating_expense_ids" widget="school_expense_hierarchy" nolabel="1" readonly="baseline_locked" invisible="dataset_type == 'forecast'" context="{'default_academic_year_id': id, 'default_school_id': school_id, 'default_cost_bucket': 'operating'}">
                                 <list editable="bottom" limit="1000"><field name="expense_category_id" domain="[('school_id', '=', parent.school_id), ('cost_bucket', '=', 'operating')]" width="230px"/><field name="expense_item_id" domain="[('school_id', '=', parent.school_id), ('expense_category_id', '=', expense_category_id)]" context="{'default_school_id': parent.school_id}" width="320px"/><field name="cost_bucket" column_invisible="1"/><field name="amount" string="Annual Amount" width="160px"/></list>
@@ -133,10 +141,27 @@
                             </field>
                         </page>
                         <page string="Teaching Load">
+                            <field name="uses_american_timetable" invisible="1"/>
+                            <div class="alert alert-info" role="status" invisible="not uses_american_timetable">
+                                American timetable: KG1-KG2 and Grades 7-10 have 29 hours/week; Grades 1-6 have 34.
+                                Art / Music is one shared choice slot. Select the subject in the row.
+                                Grades 11-12 are unchanged because their timetable has not been provided.
+                                Applying the timetable replaces only KG1-Grade 10 rows; hours remain editable.
+                                <button name="action_apply_american_timetable" type="object" string="Apply American timetable" class="btn-secondary ms-2"
+                                        invisible="baseline_locked" confirm="Replace this year's KG1-Grade 10 teaching rows with the supplied American timetable? Grades 11-12 and other years will not change."/>
+                            </div>
                             <group invisible="dataset_type != 'actual'"><field name="teaching_status" widget="radio" options="{'horizontal': True}"/></group>
                             <group><field name="classroom_weekly_hours" readonly="baseline_locked"/><field name="teacher_weekly_hours" readonly="baseline_locked"/><field name="required_teachers"/></group>
+                            <group string="Teachers by Subject" invisible="not uses_american_timetable">
+                                <div class="text-muted">
+                                    Weekly subject hours × classes, summed across grades, divided by Hours / Week / Teacher.
+                                    Round up separately for each subject; teachers can teach their subject across grades.
+                                    Only the selected Art / Music option counts.
+                                </div>
+                                <field name="teacher_requirement_details" nolabel="1" readonly="1" colspan="2"/>
+                            </group>
                             <field name="subject_distribution_ids" widget="school_income_accordion" nolabel="1" readonly="baseline_locked" context="{'default_academic_year_id': id}">
-                                <list editable="bottom" limit="1000"><field name="grade_level_id" domain="[('school_id', '=', parent.school_id)]"/><field name="subject_id" domain="[('school_id', '=', parent.school_id)]"/><field name="weekly_hours" sum="Weekly Hours"/><field name="credits" optional="show"/><field name="total_teaching_hours" sum="Teaching Hours"/></list>
+                                <list editable="bottom" limit="1000"><field name="grade_level_id" domain="[('school_id', '=', parent.school_id)]"/><field name="choice_subject_ids" column_invisible="True"/><field name="choice_label" optional="show"/><field name="subject_id" domain="[('id', 'in', choice_subject_ids)] if choice_subject_ids else [('school_id', '=', parent.school_id)]"/><field name="weekly_hours" sum="Weekly Hours"/><field name="credits" optional="show"/><field name="total_teaching_hours" sum="Teaching Hours"/></list>
                             </field>
                         </page>
                         <page string="Tools &amp; Setup" invisible="dataset_type != 'actual'">

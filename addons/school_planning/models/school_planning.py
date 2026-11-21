@@ -90,6 +90,11 @@ class SchoolSchools(models.Model):
     _description = 'Schools (Master Data)'
 
     name = fields.Char(string='Name', required=True, size=255)
+    parent_school_id = fields.Many2one(
+        'school.schools', string='Parent School', ondelete='restrict', index=True,
+        domain="[('parent_school_id', '=', False)]",
+    )
+    branch_ids = fields.One2many('school.schools', 'parent_school_id', string='Branches')
     country = fields.Char(string='Country', size=100)
     currency = fields.Char(string='Currency', required=True, size=3)
     country_id = fields.Many2one('res.country', string='Country')
@@ -97,6 +102,23 @@ class SchoolSchools(models.Model):
     curriculum_ids = fields.Many2many('school.curriculum.preset', string='Curricula')
     subject_ids = fields.One2many('school.subjects', 'school_id', string='Subjects')
     tax_rule_ids = fields.One2many('school.tax.rules', 'school_id', string='Tax Types')
+
+    @api.constrains('parent_school_id', 'currency_id', 'currency')
+    def _check_branch_hierarchy(self):
+        for school in self.sudo():
+            if school.parent_school_id:
+                if school.parent_school_id == school or school.parent_school_id.parent_school_id or school.branch_ids:
+                    raise ValidationError('A branch must belong to a school, not another branch.')
+                if (school.currency_id or self.env.company.currency_id) != (
+                    school.parent_school_id.currency_id or self.env.company.currency_id
+                ):
+                    raise ValidationError('Branches must use the same currency as their school.')
+            elif any(
+                (branch.currency_id or self.env.company.currency_id)
+                != (school.currency_id or self.env.company.currency_id)
+                for branch in school.branch_ids
+            ):
+                raise ValidationError('Branches must use the same currency as their school.')
 
     def _catalog_selection_values(self, values):
         values = dict(values)
@@ -379,8 +401,11 @@ class SchoolSubjectSetupWizard(models.TransientModel):
                     'school_id': self.school_id.id,
                     'name': preset.name,
                     'display_order': preset.display_order,
+                    'preset_id': preset.id,
                 })
                 created_count += 1
+            elif not subject.preset_id:
+                subject.preset_id = preset
 
         if selected_subjects:
             self.school_id.write({'curriculum_ids': [fields.Command.link(self.curriculum_id.id)]})
@@ -2403,6 +2428,8 @@ class SchoolSubjects(models.Model):
     )
     name = fields.Char(string='Name', required=True, size=100)
     display_order = fields.Integer(string='Display Order', required=True)
+
+    preset_id = fields.Many2one('school.subject.preset', string='Curriculum Subject', ondelete='set null')
 
 
 class SchoolTaxRules(models.Model):

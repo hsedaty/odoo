@@ -40,6 +40,56 @@ class TestSchoolDashboard(TransactionCase):
         forecasts[-1].enrollment_ids.student_count = 45
         self.assertEqual(self.school.get_dashboard(self.school.id)['totals']['students'], 45)
 
+    def test_branch_and_combined_dashboard(self):
+        branch = self.env['school.schools'].create({
+            'name': 'East branch', 'parent_school_id': self.school.id, 'currency': 'EUR',
+        })
+        group = self.env['school.grade.groups'].create({
+            'school_id': branch.id, 'name': 'Primary', 'display_order': 1,
+        })
+        grade = self.env['school.grade.levels'].create({
+            'school_id': branch.id, 'group_id': group.id, 'name': 'Grade 1', 'sort_order': 1,
+        })
+        branch_year = self.env['school.academic.years'].create({
+            'school_id': branch.id, 'academic_year_name': '2096-2097',
+            'start_date': '2096-09-01', 'end_date': '2097-06-30', 'dataset_type': 'forecast',
+        })
+        self.env['school.grade.enrollment'].create({
+            'academic_year_id': branch_year.id, 'grade_level_id': grade.id, 'student_count': 7,
+        })
+        own_years = self.years.filtered(lambda year: year.dataset_type == 'forecast')
+        combined = self.school.get_dashboard(self.school.id)
+        self.assertTrue(combined['combined_branches'])
+        self.assertEqual(set(row['id'] for row in combined['rows']), set((own_years | branch_year).ids))
+        self.assertEqual(combined['totals']['students'], 27)
+        self.assertEqual(combined['totals']['student_years'], 37)
+        self.assertEqual(combined['totals']['net_budget'], sum((own_years | branch_year).mapped('net_budget')))
+        self.assertIn('East branch - 2096-2097', [item['name'] for item in combined['comparisons']])
+        selected = self.school.get_dashboard(self.school.id, year_ids=[branch_year.id, own_years[0].id])
+        self.assertEqual(selected['totals']['students'], 17)
+        self.assertEqual(set(row['id'] for row in selected['rows']), {branch_year.id, own_years[0].id})
+        individual = branch.get_dashboard(branch.id)
+        self.assertFalse(individual['combined_branches'])
+        self.assertEqual([row['id'] for row in individual['rows']], branch_year.ids)
+        self.assertEqual(individual['totals']['students'], 7)
+        with self.assertRaises(ValidationError):
+            branch.get_dashboard(branch.id, year_ids=own_years.ids)
+
+    def test_branch_hierarchy_and_currency_are_safe(self):
+        branch = self.env['school.schools'].create({
+            'name': 'Branch', 'parent_school_id': self.school.id, 'currency': 'EUR',
+        })
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self.env['school.schools'].create({
+                'name': 'Nested branch', 'parent_school_id': branch.id, 'currency': 'EUR',
+            })
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            branch.write({'currency': 'USD'})
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            self.school.write({'parent_school_id': branch.id})
+        self.assertFalse(self.school.parent_school_id)
+        self.assertEqual(branch.parent_school_id, self.school)
+
     def test_year_filter_and_provisional_actuals(self):
         year = self.years[-1]
         data = self.school.get_dashboard(self.school.id, 'actual', year.id)
@@ -130,6 +180,13 @@ class TestSchoolDashboard(TransactionCase):
         self.assertEqual(action['params']['school_id'], self.school.id)
 
     def test_dashboard_respects_school_record_rules(self):
+        hidden = self.env['school.schools'].create({
+            'name': 'Hidden branch', 'parent_school_id': self.school.id, 'currency': 'EUR',
+        })
+        self.env['school.academic.years'].create({
+            'school_id': hidden.id, 'academic_year_name': 'Hidden year', 'dataset_type': 'forecast',
+            'start_date': '2096-09-01', 'end_date': '2097-06-30',
+        })
         user = self.env['res.users'].with_context(no_reset_password=True).create({
             'name': 'Dashboard Reader', 'login': 'dashboard_reader',
             'group_ids': [(6, 0, [self.env.ref('base.group_user').id])],
@@ -142,6 +199,7 @@ class TestSchoolDashboard(TransactionCase):
         data = self.env['school.schools'].with_user(user).get_dashboard()
         self.assertEqual(data['school_id'], self.school.id)
         self.assertEqual([school['id'] for school in data['schools']], self.school.ids)
+        self.assertNotIn('Hidden year', [row['name'] for row in data['rows']])
 
     def test_chart_metrics_and_breakdowns_use_existing_calculations(self):
         year = self.years[0]

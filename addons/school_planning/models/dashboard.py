@@ -133,8 +133,9 @@ class SchoolDashboard(models.Model):
                     )
                 if expenses:
                     add('expense_category_spend', category.name, expenses._category_amount_total())
-            if year.dataset_type == 'forecast' and year.detailed_expenses_created and year.detailed_expense_seed_ids:
-                selected = year._detailed_expense_catalog() & year.detailed_expense_seed_ids
+            selected_seeds = year.with_context(active_test=False).detailed_expense_seed_ids
+            if year.dataset_type == 'forecast' and year.detailed_expenses_created and selected_seeds:
+                selected = year._detailed_expense_catalog() & selected_seeds
                 for seed, amount, _note in year._detailed_expense_amounts(selected):
                     if amount:
                         add('expense_category_spend', seed.category_seed_id.name, amount)
@@ -158,7 +159,7 @@ class SchoolDashboard(models.Model):
         }
 
     @api.model
-    def _comparison_data(self, years, dataset):
+    def _comparison_data(self, years, dataset, include_school=False):
         if dataset == 'forecast':
             forecasts = years
         elif dataset == 'actual':
@@ -180,7 +181,8 @@ class SchoolDashboard(models.Model):
                 }
             result.append({
                 'id': forecast.id,
-                'name': forecast.academic_year_name,
+                'name': f'{forecast.school_id.name} - {forecast.academic_year_name}'
+                if include_school else forecast.academic_year_name,
                 'approved': forecast.baseline_locked,
                 'forecast': self._chart_values(forecast),
                 'actual': actual_values,
@@ -202,8 +204,11 @@ class SchoolDashboard(models.Model):
         school = schools.filtered(lambda record: record.id == school_id) if school_id else schools[:1]
         if school_id and not school:
             raise ValidationError(_('The selected school is unavailable.'))
+        branches = schools.filtered(lambda record: record.parent_school_id.id == school.id) if school else schools
+        reporting_schools = school | branches
+        combined = bool(branches)
         years = self.env['school.academic.years'].search([
-            ('school_id', '=', school.id), ('dataset_type', '=', dataset),
+            ('school_id', 'in', reporting_schools.ids), ('dataset_type', '=', dataset),
         ], order='start_date, academic_year_name, id') if school else self.env['school.academic.years']
         selected_ids = set(year_ids) if year_ids is not None else {year_id} if year_id else set(years.ids)
         selected = years.filtered(lambda year: year.id in selected_ids)
@@ -212,21 +217,26 @@ class SchoolDashboard(models.Model):
 
         rows = []
         grades = {}
+        latest_students = {}
         for year in selected:
+            year_name = f'{year.school_id.name} - {year.academic_year_name}' if combined else year.academic_year_name
             rows.append({
-                'id': year.id, 'name': year.academic_year_name,
+                'id': year.id, 'name': year_name,
                 'status': year.actual_status if dataset == 'actual' else (
                     'unclassified' if dataset == 'legacy' else (
                         'approved' if year.baseline_locked else 'draft')),
                 **{name: year[name] for name in FINANCIAL_METRICS},
                 **self._chart_values(year),
             })
+            latest_students[year.school_id.id] = year.total_enrolled_students
             for enrollment in year.enrollment_ids.sorted(
                 key=lambda line: (line.grade_level_id.sort_order, line.grade_level_id.id)
             ):
                 level = enrollment.grade_level_id
                 grade = grades.setdefault(level.id, {
-                    'id': level.id, 'name': level.name, 'group': level.group_id.name or '',
+                    'id': level.id,
+                    'name': f'{year.school_id.name} - {level.name}' if combined else level.name,
+                    'group': level.group_id.name or '',
                     'students': 0, 'revenue': 0.0, 'cost': 0.0,
                 })
                 grade['students'] += enrollment.student_count
@@ -235,13 +245,21 @@ class SchoolDashboard(models.Model):
 
         totals = {name: sum(row[name] for row in rows) for name in FINANCIAL_METRICS}
         totals['student_years'] = sum(row['students'] for row in rows)
-        totals['students'] = rows[-1]['students'] if rows else 0
+        totals['students'] = sum(latest_students.values())
         totals['margin'] = totals['net_budget'] / totals['fee_gross_total'] * 100 if totals['fee_gross_total'] else 0
         currency = school.currency_id or self.env.company.currency_id
         return {
-            'schools': [{'id': item.id, 'name': item.name} for item in schools],
+            'schools': [{
+                'id': item.id,
+                'name': f'{item.parent_school_id.name} / {item.name}'
+                if item.parent_school_id in schools else item.name,
+            } for item in schools],
             'school_id': school.id or False,
-            'years': [{'id': year.id, 'name': year.academic_year_name} for year in years],
+            'years': [{
+                'id': year.id,
+                'name': f'{year.school_id.name} - {year.academic_year_name}' if combined else year.academic_year_name,
+            } for year in years],
+            'combined_branches': combined,
             'currency': currency.name, 'currency_digits': currency.decimal_places,
             'rows': rows, 'grades': list(grades.values()), 'totals': totals,
             'trend_metrics': [{**metric, 'label': _(metric['label'])} for metric in TREND_METRICS],
@@ -253,7 +271,7 @@ class SchoolDashboard(models.Model):
             'expense_breakdown_uses_details': any(
                 year.dataset_type == 'forecast' and year.detailed_expenses_created for year in selected
             ),
-            'comparisons': self._comparison_data(selected, dataset),
+            'comparisons': self._comparison_data(selected, dataset, combined),
             'chart_preferences': self._normalized_chart_preferences(school.sudo().dashboard_chart_preferences or {}),
             'can_save_chart_preferences': self.env.user.has_group('base.group_system'),
         }

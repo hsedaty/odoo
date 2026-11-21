@@ -54,6 +54,7 @@
         <field name="arch" type="xml">
             <list string="Schools">
                 <field name="name" class="fw-bold"/>
+                <field name="parent_school_id" optional="show"/>
                 <field name="country_id" options="{'no_create': True, 'no_open': True}"/>
                 <field name="currency_id" options="{'no_create': True, 'no_open': True}"/>
                 <field name="subject_ids" column_invisible="1"/>
@@ -82,6 +83,7 @@
                     </div>
                     <group>
                         <group>
+                            <field name="parent_school_id" options="{'no_create': True}"/>
                             <field name="country_id" options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
                         </group>
                         <group>
@@ -89,6 +91,14 @@
                             <field name="curriculum_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit': True}"/>
                         </group>
                     </group>
+                    <separator string="Branches" invisible="parent_school_id"/>
+                    <field name="branch_ids" invisible="parent_school_id" context="{'default_parent_school_id': id, 'default_country_id': country_id, 'default_currency_id': currency_id}">
+                        <list>
+                            <field name="name"/>
+                            <field name="country_id"/>
+                            <field name="currency_id"/>
+                        </list>
+                    </field>
                     <separator string="Subjects"/>
                     <field name="subject_ids" nolabel="1" context="{'default_school_id': id}">
                         <list editable="bottom">
@@ -637,7 +647,7 @@
     </record>
 
     <!-- Other Year Data Lists -->
-    <record id="view_school_subject_distribution_tree" model="ir.ui.view"><field name="name">school.subject.distribution.tree</field><field name="model">school.subject.distribution</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="subject_id"/><field name="weekly_hours" sum="Total Hours"/><field name="credits"/><field name="total_teaching_hours" sum="Total Load" widget="badge"/></list></field></record>
+    <record id="view_school_subject_distribution_tree" model="ir.ui.view"><field name="name">school.subject.distribution.tree</field><field name="model">school.subject.distribution</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="choice_subject_ids" column_invisible="True"/><field name="choice_label" optional="show"/><field name="subject_id" domain="[('id', 'in', choice_subject_ids)] if choice_subject_ids else []"/><field name="weekly_hours" sum="Total Hours"/><field name="credits"/><field name="total_teaching_hours" sum="Total Load" widget="badge"/></list></field></record>
     <record id="view_school_fee_values_tree" model="ir.ui.view"><field name="name">school.fee.values.tree</field><field name="model">school.fee.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="fee_type_id"/><field name="amount" sum="Total Amount"/></list></field></record>
     <record id="view_school_expense_values_tree" model="ir.ui.view"><field name="name">school.expense.values.tree</field><field name="model">school.expense.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="expense_category_id"/><field name="expense_item_id" domain="[('expense_category_id', '=', expense_category_id)]"/><field name="cost_bucket" optional="hide"/><field name="amount"/></list></field></record>
     <record id="view_school_employment_salaries_tree" model="ir.ui.view"><field name="name">school.employment.salaries.tree</field><field name="model">school.employment.salaries</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="staff_position_id"/><field name="employee_count" sum="Total Employees"/><field name="monthly_salary"/><field name="months_paid"/><field name="bonus"/></list></field></record>
@@ -927,6 +937,7 @@
                     </group>
                     <notebook>
                         <page string="Income Details" name="income_details">
+                            <widget name="school_detailed_incomes" invisible="dataset_type != 'forecast'"/>
                             <field name="fee_value_ids" nolabel="1" readonly="1">
                                 <list create="false" edit="false" delete="false" limit="200">
                                     <field name="grade_level_id"/>
@@ -941,6 +952,14 @@
                         </page>
                         <page string="Expense Details" name="expense_details">
                             <field name="dataset_type" invisible="1"/>
+                            <field name="baseline_locked" invisible="1"/>
+                            <group string="Tax Deduction">
+                                <field name="prediction_income_tax_percent" string="Tax Deduction %" invisible="dataset_type != 'forecast'" readonly="baseline_locked"/>
+                                <field name="tax_pct" string="Effective Tax %" invisible="dataset_type == 'forecast'" readonly="1"/>
+                                <field name="tax_deductions_total" string="Tax Deduction Amount" readonly="1"/>
+                                <div class="text-muted">Already deducted from gross income; not added to operating expenses again.</div>
+                                <button name="action_open_actual_tax_types" type="object" string="Manage Tax Types" icon="fa-percent" invisible="dataset_type != 'actual'"/>
+                            </group>
                             <widget name="school_detailed_expenses" invisible="dataset_type != 'forecast'"/>
                             <field name="expense_value_ids" nolabel="1" readonly="1" invisible="dataset_type == 'forecast'">
                                 <list create="false" edit="false" delete="false">

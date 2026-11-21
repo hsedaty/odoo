@@ -202,7 +202,8 @@ export class SchoolDashboard extends Component {
                 detail: _t("%s gross-revenue margin", this.percent(totals.margin)),
                 negative: totals.net_budget < 0, icon: "fa-pie-chart" },
             { label: _t("Students"), value: this.number(totals.students),
-                detail: rows.at(-1)?.name || _t("No academic years"), icon: "fa-graduation-cap" },
+                detail: this.state.data.combined_branches ? _t("Latest selected year per school or branch")
+                    : rows.at(-1)?.name || _t("No academic years"), icon: "fa-graduation-cap" },
         ];
     }
 
@@ -347,19 +348,20 @@ export class SchoolDashboard extends Component {
         const rows = this.state.data.rows;
         const charts = [];
         const config = this.state.chartConfig;
+        const trendType = this.state.data.combined_branches ? "bar" : config.trend_type;
         const trendMetric = this.trendMetric;
         const breakdownMetric = this.breakdownMetric;
         const comparisons = this.state.data.comparisons;
         const comparisonMetric = this.comparisonMetric;
         charts.push(new Chart(this.trendRef.el, {
-            type: config.trend_type,
+            type: trendType,
             data: {
                 labels: rows.map(row => row.name),
                 datasets: [
                     {
                         label: trendMetric.label, data: rows.map(row => row[trendMetric.key]),
-                        borderColor: COLORS[0], backgroundColor: config.trend_type === "line" ? "#256f7314" : COLORS[0],
-                        fill: config.trend_type === "line", tension: 0.25,
+                        borderColor: COLORS[0], backgroundColor: trendType === "line" ? "#256f7314" : COLORS[0],
+                        fill: trendType === "line", tension: 0.25,
                     },
                 ],
             },

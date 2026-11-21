@@ -1,3 +1,5 @@
+import math
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
@@ -73,8 +75,29 @@ class OperationalExpenseSeed(models.Model):
         'school.prediction.seed.expense', string='Category', ondelete='restrict', index=True,
     )
     default_selected = fields.Boolean(string='Include in Detailed Forecast')
+    price_type = fields.Selection([('fixed', 'Fixed'), ('allocated', 'Allocated')], required=True, default='allocated')
     active = fields.Boolean(default=True)
     grade_ids = fields.Many2many('school.grade.level.preset', 'school_operational_seed_grade_rel', string='Grades')
+
+    def write(self, values):
+        guarded = self.filtered(lambda seed: seed.price_type == 'fixed' and (
+            ('price_type' in values and values['price_type'] != seed.price_type)
+            or (seed.price_set and any(name in values and values[name] != (
+                seed[name].id if name == 'currency_id' else seed[name]
+            ) for name in ('price', 'price_set', 'currency_id')))
+        ))
+        if guarded and self.env['school.academic.years'].sudo().with_context(active_test=False).search_count([
+            '|', ('detailed_expense_seed_ids', 'in', guarded.ids), ('detailed_income_seed_ids', 'in', guarded.ids),
+        ], limit=1):
+            raise ValidationError(self.env._('A confirmed fixed price used by a forecast cannot be changed.'))
+        return super().write(values)
+
+    def unlink(self):
+        if self.env['school.academic.years'].sudo().with_context(active_test=False).search_count([
+            '|', ('detailed_expense_seed_ids', 'in', self.ids), ('detailed_income_seed_ids', 'in', self.ids),
+        ], limit=1):
+            raise ValidationError(self.env._('Archive items used by forecasts instead of deleting them.'))
+        return super().unlink()
 
     @api.model
     def _link_legacy_expense_categories(self):
@@ -115,7 +138,10 @@ class OperationalExpenseSeed(models.Model):
 class PredictionSeedConfiguration(models.Model):
     _inherit = 'school.prediction.seed.configuration'
 
-    operational_seed_ids = fields.One2many('school.prediction.operational.seed', 'configuration_id', string='Detailed Expense Seeds')
+    operational_seed_ids = fields.One2many('school.prediction.operational.seed', 'configuration_id', string='Detailed Seeds')
+    income_seed_ids = fields.One2many('school.prediction.seed.expense', 'configuration_id', domain=[('catalog_type', '=', 'income')])
+    income_detail_seed_ids = fields.One2many('school.prediction.operational.seed', 'configuration_id',
+                                           domain=[('category_seed_id.catalog_type', '=', 'income')])
 
 
 class AcademicYears(models.Model):
@@ -126,8 +152,40 @@ class AcademicYears(models.Model):
     detailed_expense_seed_ids = fields.Many2many(
         'school.prediction.operational.seed', 'school_year_operational_seed_rel', copy=False,
     )
+    detailed_incomes_created = fields.Boolean(copy=False)
+    detailed_income_seed_ids = fields.Many2many(
+        'school.prediction.operational.seed', 'school_year_income_seed_rel', copy=False,
+    )
+    detailed_allocated_prices = fields.Json(default=dict, copy=False)
+    detailed_occurrence_values = fields.Json(default=dict, copy=False)
 
-    def _detailed_expense_catalog(self):
+    @api.constrains('detailed_allocated_prices')
+    def _check_detailed_allocated_prices(self):
+        for year in self:
+            prices = year.detailed_allocated_prices or {}
+            if not isinstance(prices, dict) or any(
+                not isinstance(key, str) or not key.isdecimal() or isinstance(value, bool)
+                or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0
+                for key, value in prices.items()
+            ):
+                raise ValidationError(self.env._('Allocated prices must be non-negative numbers.'))
+
+    @api.constrains('detailed_occurrence_values')
+    def _check_detailed_occurrence_values(self):
+        for year in self:
+            values = year.detailed_occurrence_values
+            if values is False or values is None:
+                continue
+            if not isinstance(values, dict) or any(
+                not isinstance(key, str) or not key.isdecimal() or not isinstance(entry, dict)
+                or set(entry) != {'mode', 'value'} or entry['mode'] not in ('amount', 'revenue_percent')
+                or isinstance(entry['value'], bool) or not isinstance(entry['value'], (int, float))
+                or not math.isfinite(entry['value']) or entry['value'] < 0
+                for key, entry in values.items()
+            ):
+                raise ValidationError(self.env._('Detailed amounts and percentages must be non-negative numbers.'))
+
+    def _detailed_catalog(self, kind):
         codes = set(self.school_id.curriculum_ids.mapped('code'))
         names = {name.casefold() for name in self.school_id.curriculum_ids.mapped('name')}
         names.update(label for code, label in (
@@ -136,16 +194,35 @@ class AcademicYears(models.Model):
         if any(code.startswith('IB_') for code in codes):
             names.add('ib')
         config = self.env.ref('school_planning.prediction_seed_configuration')
-        return config.operational_seed_ids.filtered(
-            lambda seed: seed.category_seed_id.active and seed.category_seed_id.is_detailed_category
+        year = self.with_context(active_test=False)
+        selected = year.detailed_expense_seed_ids if kind == 'expense' else year.detailed_income_seed_ids
+        seeds = config.with_context(active_test=False).operational_seed_ids
+        return seeds.filtered(
+            lambda seed: seed.category_seed_id.catalog_type == kind and seed.category_seed_id.is_detailed_category
+            and ((seed.active and seed.category_seed_id.active) or seed in selected)
             and (not seed.curriculum or seed.curriculum.strip().casefold() in names)
         )
+
+    def _detailed_expense_catalog(self):
+        return self._detailed_catalog('expense')
 
     def _detailed_expense_amount(self, seed, currency, rate_ids, date):
         if seed.student_paid:
             return 0.0, self.env._('Paid by students')
-        if not seed.price_set or not seed.basis or not seed.currency_id:
-            return None, self.env._('Price needed in seed')
+        occurrence = (self.detailed_occurrence_values or {}).get(str(seed.id))
+        if occurrence:
+            amount = occurrence['value']
+            if occurrence['mode'] == 'revenue_percent':
+                amount *= self.fee_gross_total / 100
+            return currency.round(amount), ''
+        prices = self.detailed_allocated_prices or {}
+        override = prices.get(str(seed.id)) if seed.price_type == 'allocated' else None
+        if not seed.basis:
+            return None, self.env._('Pricing basis needed in seed')
+        if override is None and not seed.price_set:
+            return None, self.env._('Enter an allocated budget') if seed.price_type == 'allocated' else self.env._('Price needed in seed')
+        if override is None and not seed.currency_id:
+            return None, self.env._('Price currency needed in seed')
         if seed.basis in ('teacher', 'quantity') and not seed.quantity_set:
             return None, self.env._('Quantity needed in seed')
         quantity = seed.quantity if seed.basis in ('teacher', 'quantity') else 1
@@ -155,8 +232,8 @@ class AcademicYears(models.Model):
             grades = {name.strip().casefold() for name in seed.grade_ids.mapped('name')}
             quantity = sum(row.student_count for row in self.enrollment_ids
                            if seed.grade_scope == 'all' or row.grade_level_id.name.strip().casefold() in grades)
-        amount = seed.price * quantity
-        if amount and seed.currency_id != currency:
+        amount = (override if override is not None else seed.price) * quantity
+        if amount and seed.currency_id and seed.currency_id != currency:
             if not {seed.currency_id.id, currency.id}.issubset(rate_ids):
                 return None, self.env._('Exchange rate unavailable for this year')
             amount = seed.currency_id._convert(amount, currency, self.env.company, date, round=False)
@@ -176,10 +253,16 @@ class AcademicYears(models.Model):
             yield seed, *self._detailed_expense_amount(seed, currency, rate_ids, date)
 
     def get_detailed_expense_list(self):
+        return self._get_detailed_list('expense')
+
+    def get_detailed_income_list(self):
+        return self._get_detailed_list('income')
+
+    def _get_detailed_list(self, kind):
         self.ensure_one()
         self.check_access('read')
         if self.dataset_type != 'forecast':
-            raise ValidationError(self.env._('Detailed expense estimates are available only for forecasts.'))
+            raise ValidationError(self.env._('Detailed estimates are available only for forecasts.'))
         currency = self.school_id.currency_id or self.env.company.currency_id
         basis = self.prediction_expense_revenue_basis
         if not basis:
@@ -192,28 +275,39 @@ class AcademicYears(models.Model):
             ) else 'gross'
         revenue = self.fee_total if basis == 'net' else self.fee_gross_total
         result = {
-            'created': self.detailed_expenses_created, 'locked': self.baseline_locked,
-            'baseline': self.expense_total, 'currency': currency.id, 'groups': [], 'total': 0.0, 'pending': 0,
-            'baseline_ratio': self.expense_total / revenue if revenue > 0 else None,
+            'created': self.detailed_expenses_created if kind == 'expense' else self.detailed_incomes_created,
+            'locked': self.baseline_locked, 'kind': kind,
+            'baseline': self.expense_total if kind == 'expense' else self.fee_gross_total,
+            'currency': currency.id, 'currency_name': currency.name, 'groups': [], 'total': 0.0, 'pending': 0,
+            'baseline_ratio': self.expense_total / revenue if kind == 'expense' and revenue > 0 else None,
             'baseline_ratio_basis': self.env._('of revenue after tax') if basis == 'net' else self.env._('of revenue before tax'),
         }
-        if not self.detailed_expenses_created:
+        if not result['created']:
             return result
-        selected_ids = set(self.detailed_expense_seed_ids.ids)
+        year = self.with_context(active_test=False)
+        selected_ids = set((year.detailed_expense_seed_ids if kind == 'expense' else year.detailed_income_seed_ids).ids)
         groups = {}
-        catalog = self._detailed_expense_catalog().sorted(
-            lambda seed: (seed.category_seed_id.display_order, seed.category_seed_id.id, seed.name)
+        catalog = self._detailed_catalog(kind).sorted(
+            lambda seed: ((seed.category_seed_id.parent_id or seed.category_seed_id).display_order,
+                          seed.category_seed_id.display_order, seed.category_seed_id.id, seed.id)
         )
         for seed, amount, note in self._detailed_expense_amounts(catalog):
-            name = seed.curriculum or self.env._('All Curricula')
+            name = seed.curriculum or (seed.category_seed_id.parent_id or seed.category_seed_id).name
             group = groups.setdefault(name, {'name': name, 'total': 0.0, 'categories': {}})
             category = group['categories'].setdefault(seed.category_seed_id.id, {
                 'id': seed.category_seed_id.id, 'name': seed.category_seed_id.name, 'total': 0.0, 'items': [],
+                'price_type': seed.category_seed_id.price_type if seed.category_seed_id.parent_id else False,
             })
             selected = seed.id in selected_ids
+            occurrence = (self.detailed_occurrence_values or {}).get(str(seed.id), {})
             category['items'].append({
                 'id': seed.id, 'name': seed.name, 'amount': amount, 'note': note,
                 'selected': selected, 'student_paid': seed.student_paid,
+                'price_type': seed.price_type,
+                'price': (self.detailed_allocated_prices or {}).get(str(seed.id), seed.price if seed.price_set else None),
+                'price_currency': (seed.currency_id or currency).name,
+                'occurrence_mode': occurrence.get('mode'),
+                'occurrence_value': occurrence.get('value'),
             })
             if selected and amount is None:
                 result['pending'] += 1
@@ -222,27 +316,75 @@ class AcademicYears(models.Model):
                     subtotal['total'] += amount
         result['groups'] = [
             {**group, 'categories': list(group['categories'].values())}
-            for _, group in sorted(groups.items())
+            for group in groups.values()
         ]
         return result
 
     def create_detailed_expense_list(self):
+        return self._create_detailed_list('expense')
+
+    def create_detailed_income_list(self):
+        return self._create_detailed_list('income')
+
+    def _create_detailed_list(self, kind):
         self.ensure_one()
         self.check_access('write')
         if self.dataset_type != 'forecast':
-            raise ValidationError(self.env._('Detailed expense estimates are available only for forecasts.'))
-        if not self.detailed_expenses_created:
-            self.write({'detailed_expenses_created': True})
-        return self.get_detailed_expense_list()
+            raise ValidationError(self.env._('Detailed estimates are available only for forecasts.'))
+        field = 'detailed_expenses_created' if kind == 'expense' else 'detailed_incomes_created'
+        if not self[field]:
+            self.write({field: True})
+        return self._get_detailed_list(kind)
 
     def set_detailed_expense_selection(self, seed_id, selected):
+        return self._set_detailed_selection('expense', seed_id, selected)
+
+    def set_detailed_income_selection(self, seed_id, selected):
+        return self._set_detailed_selection('income', seed_id, selected)
+
+    def _set_detailed_selection(self, kind, seed_id, selected):
         self.ensure_one()
         self.check_access('write')
-        if self.dataset_type != 'forecast' or not self.detailed_expenses_created:
-            raise ValidationError(self.env._('Create the detailed expense list first.'))
-        seed = self._detailed_expense_catalog().filtered(lambda row: row.id == seed_id and not row.student_paid)
+        created = self.detailed_expenses_created if kind == 'expense' else self.detailed_incomes_created
+        if self.dataset_type != 'forecast' or not created:
+            raise ValidationError(self.env._('Create the detailed list first.'))
+        seed = self._detailed_catalog(kind).filtered(lambda row: row.id == seed_id and not row.student_paid)
         if not seed:
-            raise ValidationError(self.env._('This expense is not available for this forecast.'))
+            raise ValidationError(self.env._('This item is not available for this forecast.'))
         command = fields.Command.link if selected else fields.Command.unlink
-        self.write({'detailed_expense_seed_ids': [command(seed.id)]})
-        return self.get_detailed_expense_list()
+        field = 'detailed_expense_seed_ids' if kind == 'expense' else 'detailed_income_seed_ids'
+        self.write({field: [command(seed.id)]})
+        return self._get_detailed_list(kind)
+
+    def set_detailed_allocated_price(self, kind, seed_id, price):
+        self.ensure_one()
+        self.check_access('write')
+        if kind not in ('income', 'expense') or self.dataset_type != 'forecast' or self.baseline_locked:
+            raise ValidationError(self.env._('This forecast cannot be changed.'))
+        seed = self._detailed_catalog(kind).filtered(lambda row: row.id == seed_id and row.price_type == 'allocated')
+        if not seed or not isinstance(price, (int, float)) or isinstance(price, bool) or not math.isfinite(price) or price < 0:
+            raise ValidationError(self.env._('Enter a non-negative allocated price for an available item.'))
+        prices = dict(self.detailed_allocated_prices or {})
+        prices[str(seed.id)] = price
+        self.write({'detailed_allocated_prices': prices})
+        return self._get_detailed_list(kind)
+
+    def set_detailed_occurrence_value(self, kind, seed_id, mode, value):
+        self.ensure_one()
+        self.check_access('write')
+        if kind not in ('income', 'expense') or self.dataset_type != 'forecast' or self.baseline_locked:
+            raise ValidationError(self.env._('This forecast cannot be changed.'))
+        year = self.with_context(active_test=False)
+        selected = year.detailed_income_seed_ids if kind == 'income' else year.detailed_expense_seed_ids
+        seed = self._detailed_catalog(kind).filtered(lambda row: row.id == seed_id and row in selected and not row.student_paid)
+        if not seed or mode not in ('seed', 'amount', 'revenue_percent'):
+            raise ValidationError(self.env._('Select an available detailed item and amount type.'))
+        values = dict(self.detailed_occurrence_values or {})
+        if mode == 'seed':
+            values.pop(str(seed.id), None)
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValidationError(self.env._('Enter a non-negative amount or revenue percentage.'))
+            values[str(seed.id)] = {'mode': mode, 'value': value}
+        self.write({'detailed_occurrence_values': values})
+        return self._get_detailed_list(kind)

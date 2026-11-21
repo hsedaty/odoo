@@ -48,6 +48,22 @@ defineModels([School]);
 defineMailModels();
 preloadBundle("web.chartjs_lib");
 
+test("combined school and branch figures are shown as separate bars", async () => {
+    onRpc("school.schools", "get_dashboard", () => ({
+        ...School.prototype.get_dashboard(),
+        combined_branches: true,
+        rows: [
+            { ...School.prototype.get_dashboard().rows[0], name: "School - 2026" },
+            { ...School.prototype.get_dashboard().rows[0], id: 2, name: "Branch - 2026" },
+        ],
+    }));
+    await mountWithCleanup(SchoolDashboard, { props: { action: {} } });
+    const chart = Chart.getChart(queryOne(".sp-finance-card canvas"));
+    expect(chart.config.type).toBe("bar");
+    expect(chart.data.labels).toEqual(["School - 2026", "Branch - 2026"]);
+    expect("label:contains(Trend chart style)").toHaveCount(0);
+});
+
 test("comparison follows non-consecutive year selections", async () => {
     const years = [
         { id: 1, name: "2026-2027" },

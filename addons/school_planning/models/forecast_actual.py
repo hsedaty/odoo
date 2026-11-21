@@ -323,6 +323,11 @@ class AcademicYears(models.Model):
         self.env['school.financial.report']._refresh_for_academic_years(self.ids)
         return result
 
+    @api.constrains('prediction_income_tax_percent', 'dataset_type')
+    def _check_prediction_income_tax_percent(self):
+        if any(year.dataset_type == 'forecast' and not 0 <= year.prediction_income_tax_percent <= 100 for year in self):
+            raise ValidationError(self.env._('Forecast tax deduction must be between 0 and 100%.'))
+
     def unlink(self):
         if any(year.baseline_locked for year in self):
             raise ValidationError('An approved forecast cannot be deleted.')
@@ -402,9 +407,24 @@ class AcademicYears(models.Model):
             ])
             subjects = self.env['school.subjects'].search([('school_id', '=', year.school_id.id)])
             existing_load = {(row.grade_level_id.id, row.subject_id.id) for row in year.subject_distribution_ids}
+            template_grades = grades
+            load_values = []
+            if year.uses_american_timetable:
+                from .american_curriculum import american_grade_index
+                template_grades = grades.filtered(lambda grade: american_grade_index(grade) is None)
+                choice_grades = year.subject_distribution_ids.filtered('choice_subject_ids').grade_level_id.ids
+                load_values += [
+                    {**values, 'weekly_hours': 0}
+                    for values in year.school_id._american_timetable_values(grades, subjects)
+                    if not values.get('choice_subject_ids') or values['grade_level_id'] not in choice_grades
+                ]
+            load_values += [
+                {'grade_level_id': grade.id, 'subject_id': subject.id, 'weekly_hours': 0, 'credits': 0}
+                for grade in template_grades for subject in subjects
+            ]
             self.env['school.subject.distribution'].with_context(**context).create([
-                {'academic_year_id': year.id, 'grade_level_id': grade.id, 'subject_id': subject.id, 'weekly_hours': 0, 'credits': 0}
-                for grade in grades for subject in subjects if (grade.id, subject.id) not in existing_load
+                {**values, 'academic_year_id': year.id}
+                for values in load_values if (values['grade_level_id'], values['subject_id']) not in existing_load
             ])
 
     def action_prepare_actual_entry(self):
@@ -682,6 +702,12 @@ class YearInputGuard(models.AbstractModel):
         if any(year.baseline_locked for year in years):
             raise ValidationError('Inputs of an approved forecast cannot be changed. Enter actuals in the separate Actual year.')
 
+    def _refresh_year_reports(self, years):
+        if self._name in ('school.subject.distribution', 'school.grade.enrollment'):
+            for year in years.filtered(lambda year: year.uses_american_timetable and year.dataset_type == 'forecast'):
+                year._sync_efficiency_teaching()
+        self.env['school.financial.report']._refresh_for_academic_years(years.ids)
+
     def _check_school_references(self):
         for record in self:
             year = record.academic_year_id
@@ -702,7 +728,7 @@ class YearInputGuard(models.AbstractModel):
                   'school.expansion.projects': {'name', 'description', 'start_date', 'end_date', 'project_room_ids'},
                   'school.expansion.project.rooms': {'expansion_project_id', 'room_type_id', 'room_count'},
                   'school.staffing.overrides': {'staff_position_id', 'employee_count'},
-                  'school.subject.distribution': {'grade_level_id', 'subject_id', 'weekly_hours', 'credits'}}
+                  'school.subject.distribution': {'grade_level_id', 'subject_id', 'weekly_hours', 'credits', 'choice_subject_ids'}}
         if changed_fields is not None and not inputs.get(self._name, set()).intersection(changed_fields):
             return
         sections = {'school.grade.enrollment': 'enrollment', 'school.fee.values': 'income',
@@ -747,24 +773,25 @@ class YearInputGuard(models.AbstractModel):
         records._check_school_references()
         if not self.env.context.get('actual_structure_only'):
             records._update_actual_progress()
-        self.env['school.financial.report']._refresh_for_academic_years(records.mapped('academic_year_id').ids)
+        records._refresh_year_reports(records.mapped('academic_year_id'))
         return records
 
     def write(self, values):
-        self._check_unlocked_years(self.mapped('academic_year_id'))
+        years = self.mapped('academic_year_id')
+        self._check_unlocked_years(years)
         if values.get('academic_year_id'):
             self._check_unlocked_years(self.env['school.academic.years'].browse(values['academic_year_id']))
         result = super().write(values)
         self._check_school_references()
         self._update_actual_progress(values)
-        self.env['school.financial.report']._refresh_for_academic_years(self.mapped('academic_year_id').ids)
+        self._refresh_year_reports(years | self.mapped('academic_year_id'))
         return result
 
     def unlink(self):
         self._check_unlocked_years(self.mapped('academic_year_id'))
         years = self.mapped('academic_year_id')
         result = super().unlink()
-        self.env['school.financial.report']._refresh_for_academic_years(years.ids)
+        self._refresh_year_reports(years)
         return result
 
 
