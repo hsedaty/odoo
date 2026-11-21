@@ -38,7 +38,7 @@ class HrEmployee(models.Model):
     """
     _name = 'hr.employee'
     _description = "Employee"
-    _order = 'name'
+    _order = 'name, id'
     _inherit = ['mail.thread.main.attachment', 'mail.activity.mixin', 'resource.mixin', 'avatar.mixin']
     _mail_post_access = 'read'
     _primary_email = 'work_email'
@@ -194,7 +194,7 @@ class HrEmployee(models.Model):
     # employee in company
     parent_id = fields.Many2one('hr.employee', 'Manager', tracking=True, index=True,
                                 domain="['|', ('company_id', '=', False), ('company_id', 'in', allowed_company_ids)]")
-    child_ids = fields.One2many('hr.employee', 'parent_id', string='Direct subordinates')
+    child_ids = fields.One2many('hr.employee', 'parent_id', string='Direct subordinates', domain=[('active', '=', True)])
     coach_id = fields.Many2one(
         'hr.employee', 'Coach', compute='_compute_coach', store=True, readonly=False,
         domain="['|', ('company_id', '=', False), ('company_id', 'in', allowed_company_ids)]",
@@ -562,9 +562,9 @@ class HrEmployee(models.Model):
         If no valid version is found, we return the very first version of the employee.
         """
         self.ensure_one()
-        versions = self.version_ids.filtered(lambda v: v.active)
+        versions = self.version_ids.filtered(lambda v: v.active) or self.with_context(active_test=False).version_ids
         if not versions:
-            versions = self.with_context(active_test=False).version_ids
+            return self.env['hr.version']
         filtered_versions = versions.filtered_domain([('date_version', '<=', date)])
         return max(filtered_versions, key=lambda v: v.date_version) if filtered_versions else versions[0]
 
@@ -836,7 +836,10 @@ class HrEmployee(models.Model):
                 employees_without_work_contact += employee
             else:
                 if len(employee.work_contact_id.employee_ids) <= 1:
-                    employee.work_contact_id.sudo().write({
+                    partner = employee.work_contact_id
+                    if not employee.user_id:
+                        partner = partner.sudo()
+                    partner.write({
                         'email': employee.work_email,
                         'phone': employee.work_phone,
                     })
@@ -1241,11 +1244,24 @@ We can redirect you to the public employee list."""
         if self.browse().has_access('read') or bypass_access:
             return super()._search(domain, offset, limit, order, bypass_access=bypass_access, **kwargs)
         domain = Domain(domain)
+
         # HACK Some fields are inherited from the `current_version_id` and may have been already
         # optimized, showing current_version_id in the domain, but public employee does not have
         # that field and may have fields directly on the model, just change the condition to `id` in
         # that case.
-        domain = domain.map_conditions(lambda cond: Domain('id', cond.operator, cond.value) if cond.field_expr == 'current_version_id' else cond)
+        def adapt_condition(cond):
+            if cond.field_expr != 'current_version_id':
+                return cond
+            if cond.operator in ('any', 'not any'):
+                raise AccessError(self.env._('You do not have access to this document.'))
+            if cond.operator in ('any!', 'not any!'):
+                if isinstance(cond.value, Query):
+                    query = cond.value.subselect(SQL.identifier(cond.value.table, 'employee_id'))
+                else:
+                    query = self.env['hr.version'].sudo()._search(Domain('id', 'any!', cond.value), active_test=False)
+                return Domain('id', cond.operator, query)
+            return Domain('id', cond.operator, cond.value)
+        domain = domain.map_conditions(adapt_condition)
         try:
             ids = self.env['hr.employee.public']._search(domain, offset, limit, order, **kwargs)
         except ValueError as e:
@@ -1337,7 +1353,7 @@ We can redirect you to the public employee list."""
 
     def _prepare_resource_values(self, vals, tz):
         resource_vals = super()._prepare_resource_values(vals, tz)
-        vals.pop('name')  # Already considered by super call but no popped
+        vals.pop('name', False)  # Already considered by super call but no popped
         # We need to pop it to avoid useless resource update (& write) call
         # on every newly created resource (with the correct name already)
         user_id = vals.pop('user_id', None)
@@ -1683,8 +1699,7 @@ We can redirect you to the public employee list."""
 
         # Flexible and Fully Flexible Calendars
         for calendar, resources in leave_resources_per_calendar.items():
-            reference_calendar = calendar or employee.company_id.resource_calendar_id
-            leave_intervals_per_calendar[reference_calendar] = reference_calendar._leave_intervals_batch(start_dt, stop_dt, resources=resources)
+            leave_intervals_per_calendar[calendar] = calendar._leave_intervals_batch(start_dt, stop_dt, resources=resources)
 
         for employee, calendar_periods in calendar_periods_per_employee.items():
             employee_work_intervals = []
@@ -1786,7 +1801,7 @@ We can redirect you to the public employee list."""
                 tz=employee_tz,
                 resources=self.resource_id,
                 compute_leaves=True,
-                domain=[('company_id', 'in', [False, self.company_id.id])])[self.resource_id.id]
+                domain=[('company_id', 'in', [False, self.company_id.id]), ('time_type', '=', 'leave')])[self.resource_id.id]
             return calendar_intervals
         duration_data = Intervals()
         version_prev = datetime.combine(valid_versions[0].date_start, time.min, employee_tz)

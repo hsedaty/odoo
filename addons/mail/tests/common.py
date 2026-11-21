@@ -254,8 +254,9 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
                            return_path=return_path, extra=extra,
                            email_from=email_from, msg_id=msg_id,
                            **kwargs)
+        save_original = kwargs.pop('save_original', False)
         # In real use case, fetched mail processing is executed with administrative right.
-        self.env['mail.thread'].with_user(with_user or self.env.user).sudo().message_process(model, mail)
+        self.env['mail.thread'].with_user(with_user or self.env.user).sudo().message_process(model, mail, save_original=save_original)
         return self.env[target_model].search([(target_field, '=', subject)])
 
     def _gateway_mail_reply(self, template, mail=None, email=None,
@@ -830,7 +831,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         a dict for fields. Allows to hide a lot of assertEqual under a simple
         call with a dictionary of expected values. """
         for fname, fvalue in fields_values.items():
-            with self.subTest(fname=fname, fvalue=fvalue):
+            with self.subTest(fname=fname, fvalue=str(fvalue)):
                 # email_{cc, to} are lists, hence order is not important
                 if fname in {'incoming_email_cc', 'incoming_email_to'}:
                     self.assertEqual(
@@ -2034,6 +2035,7 @@ class MailCommon(MailCase):
         for data in channels_data:
             if "ai.agent" not in self.env or data.get("channel_type") == "livechat" and not ai_livechat_installed:
                 data.pop("ai_agent_id", None)
+                data.pop("livechat_channel_has_agents", None)
         return list(channels_data)
 
     def _filter_messages_fields(self, /, *messages_data):
@@ -2049,6 +2051,9 @@ class MailCommon(MailCase):
         """ Remove store partner data dependant on other modules if they are not not installed.
         Not written in a modular way to avoid complex override for a simple test tool.
         """
+        for data in partners_data:
+            if "hr.leave" not in self.env:
+                data.pop("employee_ids", None)
         return list(partners_data)
 
     def _filter_users_fields(self, /, *users_data):

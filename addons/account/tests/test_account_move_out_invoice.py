@@ -150,6 +150,17 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
         with self.assertRaisesRegex(UserError, 'lock date'):
             inv.line_ids.tax_tag_ids = tax_tag.ids
 
+    def test_invoice_default_sale_person(self):
+        """ Test public user won't be assigned as invoice salesman
+        """
+        public_user = self.env.ref('base.public_user')
+        invoice = self.env['account.move'].create({'move_type': 'out_invoice'})
+        public_invoice = invoice.with_user(public_user).sudo()
+        public_invoice.partner_id = self.partner_a
+
+        self.assertNotEqual(public_invoice.invoice_user_id, public_user, "Public user shall not be set as salesperson")
+        self.assertEqual(public_invoice.invoice_user_id, public_invoice.create_uid, "the salesperson should fall back to the document creator")
+
     @freeze_time('2020-01-15')
     def test_out_invoice_onchange_invoice_date(self):
         for tax_date, invoice_date, accounting_date in [
@@ -2988,7 +2999,7 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
                 'debit': 0.0,
                 'credit': 300.0,
                 'account_id': wizard.revenue_accrual_account.id,
-                'reconciled': False
+                'reconciled': True
             },
             {
                 'amount_currency': 120.0,
@@ -3002,7 +3013,7 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
                 'debit': 0.0,
                 'credit': 60.0,
                 'account_id': wizard.revenue_accrual_account.id,
-                'reconciled': False
+                'reconciled': True
             },
             {
                 'amount_currency': -600.0,
@@ -3016,7 +3027,7 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
                 'debit': 300.0,
                 'credit': 0.0,
                 'account_id': wizard.revenue_accrual_account.id,
-                'reconciled': False
+                'reconciled': True
             },
             {
                 'amount_currency': -120.0,
@@ -3030,7 +3041,7 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
                 'debit': 60.0,
                 'credit': 0.0,
                 'account_id': wizard.revenue_accrual_account.id,
-                'reconciled': False
+                'reconciled': True
             },
         ])
 
@@ -5313,3 +5324,57 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
             {'date': apr, 'state': 'posted'},
             {'date': may, 'state': 'draft'},
         ])
+
+    def test_out_invoice_multi_currency_exchange_diff(self):
+        """
+        Test that through the 'Reverse and Create Invoice' on a cash basis and multi-currency invoice,
+        the exchange difference and cash basis transition moves are correctly generated and posted.
+        """
+        self.env['res.currency.rate'].create([
+            {'name': '2026-07-01', 'rate': 20.0, 'currency_id': self.other_currency.id, 'company_id': self.env.company.id},
+            {'name': '2026-07-15', 'rate': 15.0, 'currency_id': self.other_currency.id, 'company_id': self.env.company.id},
+        ])
+
+        self.env.company.tax_exigibility = True
+        tax_waiting_account = self.env['account.account'].create({
+            'name': 'TAX_WAIT',
+            'code': 'TWAIT',
+            'account_type': 'liability_current',
+            'reconcile': True,
+        })
+
+        caba_tax = self.env['account.tax'].create({
+            'name': 'Cash Basis 15%',
+            'type_tax_use': 'sale',
+            'amount': 15,
+            'tax_exigibility': 'on_payment',
+            'cash_basis_transition_account_id': tax_waiting_account.id,
+        })
+
+        invoice = self.init_invoice(
+            move_type='out_invoice',
+            partner=self.partner_a,
+            invoice_date='2026-07-01',
+            currency=self.other_currency,
+            amounts=[100.0],
+            taxes=caba_tax,
+            post=True
+        )
+
+        move_reversal = self.env['account.move.reversal'].with_context(
+            active_model="account.move",
+            active_ids=invoice.ids,
+        ).create({
+            'date': '2026-07-15',
+            'reason': 'test reversal exchange',
+            'journal_id': invoice.journal_id.id,
+        })
+
+        move_reversal.modify_moves()
+        credit_note = self.env['account.move'].search([('reversed_entry_id', '=', invoice.id)])
+        self.assertTrue(credit_note)
+
+        partials = invoice.line_ids.matched_credit_ids | invoice.line_ids.matched_debit_ids
+        exchange_moves = partials.exchange_move_id
+
+        self.assertTrue(exchange_moves)

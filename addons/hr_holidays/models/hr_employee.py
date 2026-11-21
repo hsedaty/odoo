@@ -171,7 +171,7 @@ class HrEmployee(models.Model):
     def _compute_show_leaves(self):
         show_leaves = self.env.user.has_group('hr_holidays.group_hr_holidays_user')
         for employee in self:
-            if show_leaves or employee.user_id == self.env.user:
+            if show_leaves or employee.user_id == self.env.user or employee.leave_manager_id == self.env.user:
                 employee.show_leaves = True
             else:
                 employee.show_leaves = False
@@ -657,5 +657,5 @@ class HrEmployee(models.Model):
             elif holiday and holiday.leave_type_request_unit == 'day':
                 leave_start = datetime.combine(start.date(), time.min, tz)
                 leave_stop = datetime.combine(stop.date() + timedelta(days=1), time.min, tz)
-            adjusted_leaves += Intervals([(leave_start, leave_stop, leave)])
+            adjusted_leaves |= Intervals([(leave_start, leave_stop, leave)])
         return adjusted_leaves
