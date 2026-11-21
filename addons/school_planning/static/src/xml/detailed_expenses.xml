@@ -3,7 +3,7 @@
     <t t-name="school_planning.DetailedExpenses">
         <div t-if="state.data" class="o_school_detailed_expenses">
             <div class="d-flex flex-wrap justify-content-between gap-3 bg-light border rounded p-3 fw-semibold mb-2">
-                <span>All Expenses (NO DETAILS)</span>
+                <span t-esc="kind === 'income' ? 'All Income (NO DETAILS)' : 'All Expenses (NO DETAILS)'"/>
                 <span class="d-flex flex-wrap gap-3">
                     <span t-if="state.data.baseline_ratio != null" class="text-muted">
                         <t t-esc="percentage(state.data.baseline_ratio) + ' ' + state.data.baseline_ratio_basis"/>
@@ -12,40 +12,75 @@
                 </span>
             </div>
             <button t-if="!state.data.created and !state.data.locked" type="button" class="btn btn-primary"
-                    t-att-disabled="state.busy" t-on-click="() => this.update('create_detailed_expense_list')">
-                Create detailed expense list
+                    t-att-disabled="state.busy" t-on-click="() => this.createList()">
+                <t t-esc="kind === 'income' ? 'Create detailed income list' : 'Create detailed expense list'"/>
             </button>
             <details t-if="state.data.created" class="border rounded" open="open">
                 <summary class="bg-light p-3 fw-semibold">
-                    All Expenses (DETAILED)
+                    <t t-esc="kind === 'income' ? 'All Income (DETAILED)' : 'All Expenses (DETAILED)'"/>
                     <span class="float-end text-nowrap" aria-live="polite" t-esc="money(state.data.total)"/>
                 </summary>
                 <div class="p-3">
-                    <p class="text-muted mb-2">Select the expenses needed for this year. This estimate does not change the forecast total.</p>
-                    <p t-if="!state.data.groups.length" class="text-muted mb-0">No expense seeds match this school's configured curricula.</p>
-                    <p t-if="state.data.pending" class="text-warning mb-2" role="status">Subtotal only: some selected expenses are missing cost information.</p>
+                    <p class="text-muted mb-2">Adjust an item for this year using an amount or a percentage of revenue before tax. Seed prices and other years are unchanged. This estimate does not change the forecast total.</p>
+                    <p t-if="!state.data.groups.length" class="text-muted mb-0">No seeds match this school's configured curricula.</p>
+                    <p t-if="state.data.pending" class="text-warning mb-2" role="status">Subtotal only: some selected items are missing price information.</p>
                     <details t-foreach="state.data.groups" t-as="group" t-key="group.name" class="border rounded mb-2">
                         <summary class="bg-light px-3 py-2 fw-semibold">
                             <t t-esc="group.name"/>
                             <span class="float-end text-nowrap" t-esc="money(group.total)"/>
                         </summary>
                         <div class="ps-3 pe-2 py-2">
-                            <details t-foreach="group.categories" t-as="category" t-key="category.id" class="border rounded mb-1">
-                                <summary class="px-3 py-2 fw-semibold">
+                            <details t-foreach="group.categories" t-as="category" t-key="category.id"
+                                     class="border rounded mb-1" t-att-open="category.name === group.name ? true : undefined">
+                                <summary t-att-class="category.name === group.name ? 'd-none' : 'px-3 py-2 fw-semibold'">
                                     <t t-esc="category.name"/>
+                                    <span t-if="category.price_type" class="badge text-bg-light ms-2" t-esc="category.price_type === 'fixed' ? 'Fixed' : 'Allocated'"/>
                                     <span class="float-end text-nowrap" t-esc="money(category.total)"/>
                                 </summary>
-                                <label t-foreach="category.items" t-as="item" t-key="item.id"
+                                <div t-foreach="category.items" t-as="item" t-key="item.id"
                                        class="d-flex justify-content-between flex-wrap gap-2 border-top py-2 px-3 ms-2">
-                                    <span>
+                                    <label>
                                         <input type="checkbox" class="form-check-input me-2" t-att-checked="item.selected"
                                                t-att-disabled="state.data.locked or state.busy or item.student_paid"
-                                               t-on-click.prevent="() => this.update('set_detailed_expense_selection', item.id, !item.selected)"/>
+                                               t-on-click.prevent="() => this.selectItem(item)"/>
                                         <t t-esc="item.name"/>
-                                    </span>
+                                        <span class="badge text-bg-light ms-2" t-esc="item.price_type === 'fixed' ? 'Fixed' : 'Allocated'"/>
+                                    </label>
+                                    <label t-if="item.selected and !item.student_paid and item.price_type === 'allocated' and !item.occurrence_mode" class="d-flex align-items-center gap-2">
+                                        <span class="small">Default budget / unit (<t t-esc="item.price_currency"/>)</span>
+                                        <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
+                                               t-att-value="item.price == null ? '' : item.price"
+                                               t-att-disabled="state.data.locked or state.busy"
+                                               t-on-change="(ev) => this.setPrice(item, ev)"/>
+                                    </label>
+                                    <div t-if="item.selected and !item.student_paid" class="d-flex align-items-center flex-wrap gap-2">
+                                        <label class="d-flex align-items-center gap-2">
+                                            <span class="small">This year</span>
+                                            <select class="form-select form-select-sm" t-att-aria-label="'Amount type for ' + item.name"
+                                                    t-att-disabled="state.data.locked or state.busy"
+                                                    t-att-value="this.occurrenceMode(item)"
+                                                    t-on-change="(ev) => this.setOccurrenceMode(item, ev)">
+                                                <option value="amount">Amount</option>
+                                                <option value="revenue_percent">% of revenue before tax</option>
+                                            </select>
+                                        </label>
+                                        <label class="d-flex align-items-center gap-2">
+                                            <span class="small" t-esc="this.occurrenceMode(item) === 'amount' ? state.data.currency_name : '%'"/>
+                                            <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
+                                                   t-att-aria-label="'This year for ' + item.name"
+                                                   t-att-value="this.occurrenceValue(item) == null ? '' : this.occurrenceValue(item)"
+                                                   t-att-disabled="state.data.locked or state.busy"
+                                                   t-on-change="(ev) => this.setOccurrence(item, ev)"/>
+                                        </label>
+                                        <span t-if="item.occurrence_mode and item.occurrence_mode !== this.occurrenceMode(item)"
+                                              class="text-muted small">Enter a value to apply this type.</span>
+                                        <button t-if="item.occurrence_mode" type="button" class="btn btn-link btn-sm"
+                                                t-att-disabled="state.data.locked or state.busy"
+                                                t-on-click="() => this.resetOccurrence(item)">Use default</button>
+                                    </div>
                                     <span class="text-muted" t-if="item.note" t-esc="item.note"/>
                                     <span class="text-nowrap" t-else="" t-esc="money(item.amount)"/>
-                                </label>
+                                </div>
                             </details>
                         </div>
                     </details>

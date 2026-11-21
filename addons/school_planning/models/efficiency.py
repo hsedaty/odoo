@@ -1,7 +1,11 @@
 import math
 
+from markupsafe import Markup
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools.misc import formatLang
+from .american_curriculum import american_grade_index
 
 
 INFRASTRUCTURE = [('existing', 'Existing Classes'), ('new', 'No Existing Classes')]
@@ -286,6 +290,9 @@ class PredictionExpenseSeed(models.Model):
     ], default='extreme', required=True)
     cost_bucket = fields.Selection([('operating', 'Expenses'), ('employee', 'Payroll')], default='operating', required=True)
     is_detailed_category = fields.Boolean(string='Detailed Expense Category')
+    catalog_type = fields.Selection([('expense', 'Expense'), ('income', 'Income')], required=True, default='expense')
+    price_type = fields.Selection([('fixed', 'Fixed'), ('allocated', 'Allocated')], required=True, default='allocated')
+    parent_id = fields.Many2one('school.prediction.seed.expense', string='Parent Category', ondelete='restrict')
     detailed_schedule_required = fields.Boolean(string='Require Payment Schedule')
     start_year_index = fields.Integer(default=1, required=True)
     end_year_index = fields.Integer(string='Last Year (0 = ongoing)')
@@ -293,6 +300,16 @@ class PredictionExpenseSeed(models.Model):
                              default='revenue_stable', required=True)
     base_annual_amount = fields.Float()
     annual_change_percent = fields.Float()
+
+    @api.constrains('parent_id', 'configuration_id', 'catalog_type')
+    def _check_catalog_parent(self):
+        if self._has_cycle():
+            raise ValidationError(self.env._('Categories cannot contain a cycle.'))
+        for category in self.filtered('parent_id'):
+            if (category.parent_id.configuration_id != category.configuration_id
+                    or category.parent_id.catalog_type != category.catalog_type
+                    or not category.parent_id.is_detailed_category):
+                raise ValidationError(self.env._('The parent must be a detailed category of the same type and configuration.'))
 
     @api.constrains('is_detailed_category', 'cost_bucket')
     def _check_detailed_category_bucket(self):
@@ -376,6 +393,9 @@ class EfficientYear(models.Model):
     infrastructure_seeded = fields.Boolean(copy=False)
     required_classrooms = fields.Integer(compute='_compute_teaching_requirements', string='Calculated Classrooms')
     required_teachers = fields.Integer(compute='_compute_teaching_requirements', string='Calculated Teachers')
+    teacher_requirement_details = fields.Html(
+        string='Teachers by Subject', compute='_compute_teaching_requirements',
+    )
     forecast_loaded = fields.Boolean(string='Forecast Inputs Loaded', readonly=True, copy=False)
 
     @api.onchange('school_id', 'forecast_year_id')
@@ -405,21 +425,29 @@ class EfficientYear(models.Model):
         if any(year.students_per_classroom <= 0 or year.classroom_weekly_hours <= 0 or year.teacher_weekly_hours <= 0 for year in self):
             raise ValidationError('Classroom capacity and teaching hours must be greater than zero.')
 
-    @api.depends('enrollment_ids.student_count', 'enrollment_ids.class_count', 'students_per_classroom',
+    @api.depends('dataset_type', 'uses_american_timetable',
+                 'enrollment_ids.student_count', 'enrollment_ids.class_count', 'students_per_classroom',
                  'classroom_weekly_hours', 'teacher_weekly_hours', 'infrastructure_mode',
-                 'subject_distribution_ids.weekly_hours', 'subject_distribution_ids.grade_level_id', 'subject_distribution_ids.subject_id')
+                 'subject_distribution_ids.weekly_hours', 'subject_distribution_ids.grade_level_id', 'subject_distribution_ids.subject_id',
+                 'subject_distribution_ids.subject_id.name', 'subject_distribution_ids.subject_id.display_order')
     def _compute_teaching_requirements(self):
         for year in self:
             classes = sum(year.enrollment_ids.mapped('class_count'))
             year.required_classrooms = classes
-            if year.dataset_type != 'actual' or not any(year.subject_distribution_ids.mapped('weekly_hours')):
+            american = year.uses_american_timetable
+            year.teacher_requirement_details = False
+            if (year.dataset_type != 'actual' and not american) or not any(year.subject_distribution_ids.mapped('weekly_hours')):
                 hours = classes * year.classroom_weekly_hours
                 year.required_teachers = math.ceil(hours / year.teacher_weekly_hours) if year.teacher_weekly_hours else 0
+                if american:
+                    year.teacher_requirement_details = Markup('<p>{}</p>').format(year.env._(
+                        'Subject hours have not been entered. The total currently uses a classroom-hours estimate; '
+                        'apply the American timetable to see teachers needed by subject.'
+                    ))
                 continue
 
-            # Actual teacher demand is based on subject coverage across grade levels.
-            # Rules: max 35 hours per class/week, max 20 hours per teacher/week, and
-            # each subject can be taught across multiple grade levels.
+            # American timetables retain their supplied hours and configured teacher load.
+            # Other Actual curricula keep the existing 35-hour class / 20-hour teacher caps.
             class_count_by_level = {
                 enrollment.grade_level_id.id: max(int(enrollment.class_count or 0), 0)
                 for enrollment in year.enrollment_ids
@@ -440,15 +468,39 @@ class EfficientYear(models.Model):
                 if classes_for_level <= 0:
                     continue
                 level_total = weekly_by_level.get(level_id, 0.0)
-                cap_factor = min(1.0, 35.0 / level_total) if level_total > 0 else 0.0
+                cap_factor = 1.0 if american else (min(1.0, 35.0 / level_total) if level_total > 0 else 0.0)
                 effective_weekly = weekly_hours * cap_factor
                 subject_hours[subject_id] = subject_hours.get(subject_id, 0.0) + (effective_weekly * classes_for_level)
 
-            year.required_teachers = sum(
-                max(1, math.ceil(hours / 20.0))
-                for hours in subject_hours.values()
+            teacher_load = year.teacher_weekly_hours if american else 20.0
+            teachers_by_subject = {
+                subject_id: math.ceil(hours / teacher_load)
+                for subject_id, hours in subject_hours.items()
                 if hours > 0
+            }
+            year.required_teachers = sum(teachers_by_subject.values())
+            if american:
+                year.teacher_requirement_details = year._render_teacher_requirements(subject_hours, teachers_by_subject)
+
+    def _render_teacher_requirements(self, subject_hours, teachers_by_subject):
+        self.ensure_one()
+        rows = Markup('').join(
+            Markup('<tr><td>{}</td><td class="text-end">{}</td><td class="text-end">{}</td></tr>').format(
+                subject.name, formatLang(self.env, subject_hours.get(subject.id, 0), digits=2),
+                teachers_by_subject.get(subject.id, 0),
             )
+            for subject in self.subject_distribution_ids.subject_id.sorted('display_order')
+        )
+        return Markup(
+            '<div class="table-responsive"><table class="table table-sm table-striped">'
+            '<thead><tr><th>{}</th><th class="text-end">{}</th><th class="text-end">{}</th></tr></thead>'
+            '<tbody>{}</tbody><tfoot><tr class="fw-bold"><td>{}</td>'
+            '<td class="text-end">{}</td><td class="text-end">{}</td></tr></tfoot></table></div>'
+        ).format(
+            self.env._('Subject'), self.env._('Weekly Teaching Hours'), self.env._('Teachers Needed'),
+            rows, self.env._('Total'), formatLang(self.env, sum(subject_hours.values()), digits=2),
+            sum(teachers_by_subject.values()),
+        )
 
     @api.constrains('payroll_rate', 'payroll_fixed_amount')
     def _check_summary_payroll(self):
@@ -512,7 +564,7 @@ class EfficientYear(models.Model):
         self.ensure_one()
         if self.baseline_locked or not self.students_per_classroom or not self.classroom_weekly_hours or not self.teacher_weekly_hours:
             return
-        if self.dataset_type == 'forecast' and self.subject_distribution_ids:
+        if self.dataset_type == 'forecast' and self.subject_distribution_ids and not self.uses_american_timetable:
             for grade in self.subject_distribution_ids.mapped('grade_level_id'):
                 rows = self.subject_distribution_ids.filtered(lambda row: row.grade_level_id == grade)
                 total = sum(rows.mapped('weekly_hours'))
@@ -522,7 +574,8 @@ class EfficientYear(models.Model):
             positions = self.env['school.staff.positions'].search([('school_id', '=', self.school_id.id), ('planning_role', '=', 'teacher')])
             for position in positions:
                 override = self.env['school.staffing.overrides'].search([('academic_year_id', '=', self.id), ('staff_position_id', '=', position.id)], limit=1)
-                count = max(self.required_teachers, len(self.school_id.subject_ids)) if self.total_enrolled_students else 0
+                count = (self.required_teachers if self.uses_american_timetable else
+                         max(self.required_teachers, len(self.school_id.subject_ids))) if self.total_enrolled_students else 0
                 if override:
                     override.employee_count = count
                 elif self.employment_salary_ids.filtered(lambda row: row.staff_position_id == position):
@@ -612,7 +665,8 @@ class EfficientYear(models.Model):
                           'payroll_basis': 'amount', 'payroll_fixed_amount': baseline.employee_cost_total, 'payroll_status': 'in_progress'})
         if self.teaching_status == 'not_started' and baseline.subject_distribution_ids:
             target.write({'subject_distribution_ids': [fields.Command.clear()] + [fields.Command.create({'grade_level_id': row.grade_level_id.id, 'subject_id': row.subject_id.id,
-                                                                             'weekly_hours': row.weekly_hours, 'credits': row.credits}) for row in baseline.subject_distribution_ids],
+                                                                             'weekly_hours': row.weekly_hours, 'credits': row.credits,
+                                                                             'choice_subject_ids': [fields.Command.set(row.choice_subject_ids.ids)]}) for row in baseline.subject_distribution_ids],
                           'teaching_status': 'in_progress'})
             target._prepare_actual_entry_rows()
         target.write({'forecast_loaded': True})
@@ -776,8 +830,14 @@ class EfficientQuickPrediction(models.TransientModel):
             wizard._autofill_staff_counts_for_lines()
 
     def _ensure_subject_distribution(self, academic_year, levels, subjects):
+        if academic_year.uses_american_timetable:
+            supported = levels.filtered(lambda grade: american_grade_index(grade) is not None)
+            academic_year._apply_american_timetable(supported, subjects)
+            levels -= supported
         super()._ensure_subject_distribution(academic_year, levels, subjects)
-        academic_year.subject_distribution_ids.write({'weekly_hours': self.classroom_weekly_hours / len(subjects) if subjects else 0})
+        academic_year.subject_distribution_ids.filtered(lambda row: row.grade_level_id in levels).write({
+            'weekly_hours': self.classroom_weekly_hours / len(subjects) if subjects else 0,
+        })
 
     def _ensure_operating_models(self):
         positions = super()._ensure_operating_models()

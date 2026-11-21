@@ -55,11 +55,12 @@
         <field name="model">school.schools</field>
         <field name="arch" type="xml">
             <kanban class="o_school_cards">
-                <field name="name"/><field name="country_id"/><field name="currency_id"/><field name="subject_ids"/>
+                <field name="name"/><field name="parent_school_id"/><field name="country_id"/><field name="currency_id"/><field name="subject_ids"/>
                 <templates><t t-name="card">
                     <div class="sp-school-card">
                         <div class="sp-school-card-icon"><i class="fa fa-graduation-cap" title="School" aria-hidden="true"/></div>
                         <h2 class="fs-4 fw-bold mt-3"><field name="name"/></h2>
+                        <div class="text-muted" invisible="not parent_school_id"><field name="parent_school_id"/></div>
                         <div class="text-muted mb-3"><field name="country_id"/> · <field name="currency_id"/></div>
                         <p class="small text-muted" invisible="subject_ids">Configure subjects to create your first prediction.</p>
                         <div class="d-flex flex-wrap gap-2 mt-auto">

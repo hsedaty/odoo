@@ -93,6 +93,27 @@ class TestQuickPrediction(TransactionCase):
                 year.write({'prediction_expense_revenue_basis': False})
                 self.assertAlmostEqual(year.get_detailed_expense_list()['baseline_ratio'], 0.24)
 
+    def test_quick_predictions_are_independent_per_branch(self):
+        branches = self.env['school.schools'].create([
+            {'name': name, 'parent_school_id': self.school.id, 'currency': 'EGP'}
+            for name in ('North', 'South')
+        ])
+        for branch, count in zip(branches, (100, 200)):
+            self.env['school.subjects'].create({
+                'name': 'Mathematics', 'school_id': branch.id, 'display_order': 1,
+            })
+            self.assertEqual(branch.action_open_quick_prediction()['context']['default_school_id'], branch.id)
+            wizard = self.env['school.prediction.quick.setup.wizard'].create({'school_id': branch.id})
+            wizard.line_ids.write({'student_count': count, 'annual_fee_per_student': 100})
+            wizard.action_apply()
+            self.assertEqual(wizard._existing_forecast_years().mapped('school_id'), branch)
+            self.assertEqual(wizard._existing_forecast_years().mapped('total_enrolled_students'), [count] * 3)
+        combined = self.school.get_dashboard(self.school.id)
+        self.assertEqual(len(combined['rows']), 6)
+        self.assertEqual(combined['totals']['students'], 300)
+        for branch, count in zip(branches, (100, 200)):
+            self.assertEqual(branch.get_dashboard(branch.id)['totals']['students'], count)
+
     def test_deleted_default_percentage_seed_stays_deleted(self):
         # setUpClass removed the installed default and set up a custom percentage instead.
         convert_file(self.env, 'school_planning', 'data/prediction_seed_configuration.xml', {}, mode='update')
@@ -114,16 +135,16 @@ class TestQuickPrediction(TransactionCase):
         self.assertAlmostEqual(first.get_detailed_expense_list()['baseline_ratio'], 0.30)
         self.assertEqual(first.get_detailed_expense_list()['baseline_ratio_basis'], 'of revenue before tax')
 
-        accreditation = self.env.ref('school_planning.operational_accreditation_us_candidacy')
+        accreditation = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'Cognia Candidacy Fee')
         accreditation.category_seed_id.detailed_schedule_required = True
-        accreditation.write({'currency_id': self.school.currency_id.id, 'frequency': 'once',
-                             'start_year_index': 2})
-        digital = self.env.ref('school_planning.operational_digital_ixl')
-        digital.write({'currency_id': self.school.currency_id.id, 'price': 5, 'price_set': True})
+        accreditation.write({'currency_id': self.school.currency_id.id, 'price': 2500, 'price_set': True,
+                             'frequency': 'once', 'start_year_index': 2})
+        digital = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'IXL')
+        digital.write({'currency_id': self.school.currency_id.id, 'basis': 'student', 'price': 5, 'price_set': True})
         foreign = self.env.ref('school_planning.operational_digital_inthinking')
-        missing = self.env.ref('school_planning.operational_digital_hmh')
+        missing = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'HMH')
         data = first.create_detailed_expense_list()
-        self.assertEqual([group['name'] for group in data['groups']], ['American'])
+        self.assertIn('Official Payments', [group['name'] for group in data['groups']])
         self.assertEqual(data['total'], 0)
         with self.assertRaises(ValidationError):
             first.set_detailed_expense_selection(foreign.id, True)
@@ -167,7 +188,7 @@ class TestQuickPrediction(TransactionCase):
         self.assertNotIn(category, self._wizard().repeating_expense_line_ids.seed_id)
         year.create_detailed_expense_list()
         data = year.set_detailed_expense_selection(item.id, True)
-        self.assertEqual(data['groups'][0]['categories'][0]['name'], 'IT Support')
+        self.assertIn('IT Support', [category['name'] for group in data['groups'] for category in group['categories']])
         dashboard = self.school.get_dashboard(school_id=self.school.id, year_id=year.id)
         self.assertIn('detailed_expense_category_spend', [metric['key'] for metric in dashboard['breakdown_metrics']])
         breakdowns = dashboard['breakdowns']
@@ -191,11 +212,11 @@ class TestQuickPrediction(TransactionCase):
         self.env['school.expense.values'].create({
             'academic_year_id': first.id, 'expense_category_id': category.id, 'amount': 100,
         })
-        digital = self.env.ref('school_planning.operational_digital_ixl')
-        digital.write({'currency_id': self.school.currency_id.id, 'price': 5, 'price_set': True})
-        accreditation = self.env.ref('school_planning.operational_accreditation_us_candidacy')
-        accreditation.currency_id = self.school.currency_id
-        missing = self.env.ref('school_planning.operational_digital_hmh')
+        digital = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'IXL')
+        digital.write({'currency_id': self.school.currency_id.id, 'basis': 'student', 'price': 5, 'price_set': True})
+        accreditation = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'Cognia Candidacy Fee')
+        accreditation.write({'currency_id': self.school.currency_id.id, 'price': 2500, 'price_set': True})
+        missing = self.configuration.operational_seed_ids.filtered(lambda row: row.name == 'HMH')
         missing.price_set = False
 
         before = self.school.get_dashboard(school_id=self.school.id, year_id=first.id)
@@ -214,19 +235,19 @@ class TestQuickPrediction(TransactionCase):
         data = self.school.get_dashboard(school_id=self.school.id, year_id=first.id)
         self.assertTrue(data['expense_breakdown_uses_details'])
         self.assertEqual(data['breakdowns']['expense_category_spend'], [
-            {'label': 'Accreditation', 'value': 2500},
-            {'label': 'Digital Resources', 'value': 500},
+            {'label': 'Accreditation Fees', 'value': 2500},
+            {'label': 'Digital Resource Expenses', 'value': 500},
             {'label': 'Other expenses', 'value': 100},
         ])
         self.assertEqual(first.get_detailed_expense_list()['pending'], 1)
         self.assertEqual(self.school._chart_breakdowns(first | second)['expense_category_spend'], [
-            {'label': 'Accreditation', 'value': 2500},
-            {'label': 'Digital Resources', 'value': 500},
+            {'label': 'Accreditation Fees', 'value': 2500},
+            {'label': 'Digital Resource Expenses', 'value': 500},
             {'label': 'Other expenses', 'value': 100},
         ])
         first.set_detailed_expense_selection(digital.id, False)
         self.assertEqual(self.school._chart_breakdowns(first)['expense_category_spend'], [
-            {'label': 'Accreditation', 'value': 2500},
+            {'label': 'Accreditation Fees', 'value': 2500},
             {'label': 'Other expenses', 'value': 100},
         ])
         self.assertEqual(first.expense_total, 3100)
