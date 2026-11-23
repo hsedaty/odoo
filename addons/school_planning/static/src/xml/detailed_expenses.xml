@@ -3,7 +3,7 @@
     <t t-name="school_planning.DetailedExpenses">
         <div t-if="state.data" class="o_school_detailed_expenses">
             <div class="d-flex flex-wrap justify-content-between gap-3 bg-light border rounded p-3 fw-semibold mb-2">
-                <span t-esc="kind === 'income' ? (state.data.historic_frozen ? 'Historical fee income' : 'income from tuition ONLY') : 'All Expenses (NO DETAILS)'"/>
+                <span t-esc="kind === 'income' ? (state.data.historic_frozen ? 'Historical fee income' : 'Tuition income only') : 'Expenses without details'"/>
                 <span class="d-flex flex-wrap gap-3">
                     <span t-if="state.data.baseline_ratio != null" class="text-muted">
                         <t t-esc="percentage(state.data.baseline_ratio) + ' ' + state.data.baseline_ratio_basis"/>
@@ -15,22 +15,18 @@
                     t-att-disabled="state.busy" t-on-click="() => this.createList()">
                 <t t-esc="kind === 'income' ? 'Create detailed income list' : 'Create detailed expense list'"/>
             </button>
-            <p t-if="kind === 'expense' and !state.data.created and !state.data.locked" class="text-muted mt-2">
-                Create a detailed list, then choose which expenses to use in reports.
-            </p>
-            <details t-if="state.data.created or kind === 'income'" class="border rounded" open="open">
+            <p t-if="kind === 'income' and props.record.dirty" class="text-muted mt-2 mb-0" role="status">Save changes to refresh the income breakdown.</p>
+            <p t-if="state.data.historic_frozen and !state.data.created" class="text-muted mt-2 mb-0">This forecast was approved before Detailed Income was included in totals. Its approved figures remain unchanged.</p>
+            <details t-if="state.data.created" class="border rounded" open="open">
                 <summary class="bg-light p-3 fw-semibold">
-                    <t t-esc="kind === 'income' ? 'All Income (DETAILED)' : 'All Expenses (DETAILED)'"/>
+                    <t t-esc="kind === 'income' ? 'Detailed income' : 'Detailed expenses'"/>
                     <span class="float-end text-nowrap" aria-live="polite" t-esc="money(kind === 'income' and !state.data.historic_frozen ? props.record.data.fee_gross_total : state.data.total)"/>
                 </summary>
                 <div class="p-3">
                     <button t-if="kind === 'expense' and !state.data.locked" type="button" class="btn btn-outline-danger btn-sm mb-2"
                             t-att-disabled="state.busy" t-on-click="() => this.deleteList()">Delete detailed expense list</button>
-                    <p t-if="kind === 'expense'" class="text-muted mb-2">Enter an amount or a percentage of revenue before tax for this year. Complete prices before selecting Detailed for reports. Other years are unchanged.</p>
-                    <p t-elif="state.data.historic_frozen" class="text-muted mb-2">This forecast was approved before Detailed Income was included in totals. Its approved figures remain unchanged.</p>
-                    <p t-elif="state.data.locked" class="text-muted mb-2">This approved income breakdown and its totals are preserved.</p>
-                    <p t-else="" class="text-muted mb-2">Tuition is included automatically. Percentages use tuition revenue before tax. Changing a per-student average resets its grade amounts.</p>
-                    <p t-if="kind === 'income' and props.record.dirty" class="text-muted mb-2" role="status">Save changes to refresh the income breakdown.</p>
+                    <p t-if="kind === 'income' and state.data.historic_frozen" class="text-muted mb-2">This forecast was approved before Detailed Income was included in totals. Its approved figures remain unchanged.</p>
+                    <p t-elif="kind === 'income' and state.data.locked" class="text-muted mb-2">This approved income breakdown and its totals are preserved.</p>
                     <p t-if="state.data.created and !state.data.groups.length" class="text-muted mb-0">No seeds match this school's configured curricula.</p>
                     <DismissibleNotice t-if="state.data.pending" t-key="state.data.pending" variant="'inline-warning'">Subtotal only: some selected items are missing price information.</DismissibleNotice>
                     <details t-foreach="state.data.groups" t-as="group" t-key="group.name" class="border rounded mb-2">
@@ -56,7 +52,7 @@
                                         <span class="badge text-bg-light ms-2" t-esc="item.price_type === 'fixed' ? 'Fixed' : 'Allocated'"/>
                                     </label>
                                     <div t-if="kind === 'income' and item.selected and item.basis === 'student' and !item.student_paid" class="d-flex align-items-center gap-2">
-                                        <label class="d-flex align-items-center gap-2">
+                                        <label class="d-flex align-items-center gap-2" title="Changing the average resets the amounts for all applicable grades.">
                                             Average / student
                                             <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
                                                    t-att-aria-label="'Average per student for ' + item.name"

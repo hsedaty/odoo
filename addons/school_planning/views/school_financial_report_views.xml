@@ -9,7 +9,7 @@
         <field name="name">school.financial.report.list</field>
         <field name="model">school.financial.report</field>
         <field name="arch" type="xml">
-            <list string="Financial Report" create="false" edit="false" delete="false" sample="1">
+            <list string="Financial Report" class="o_school_financial_list" create="false" edit="false" delete="false" sample="1">
                 <field name="school_id"/>
                 <field name="academic_year_name"/>
                 <field name="dataset_type" widget="badge"/>
@@ -84,7 +84,7 @@
         <field name="name">school.financial.report.form</field>
         <field name="model">school.financial.report</field>
         <field name="arch" type="xml">
-            <form string="Financial Report" create="false" edit="false" delete="false">
+            <form string="Financial Report" class="o_school_financial_summary" create="false" edit="false" delete="false">
                 <sheet>
                     <field name="income_incomplete" invisible="1"/>
                     <widget name="school_dismissible_notice" variant="warning" string="Forecast totals are incomplete: selected Detailed Income items need pricing." invisible="not income_incomplete"/>

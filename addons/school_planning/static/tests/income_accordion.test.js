@@ -1,5 +1,38 @@
+import { defineMailModels } from "@mail/../tests/mail_test_helpers";
 import { expect, test } from "@odoo/hoot";
+import { animationFrame } from "@odoo/hoot-mock";
+import { registry } from "@web/core/registry";
+import { mountWithCleanup } from "@web/../tests/web_test_helpers";
+import "@school_planning/js/detailed_expenses";
 import { IncomeAccordionRenderer } from "@school_planning/js/income_accordion";
+
+defineMailModels();
+
+test("detailed income appears only after the list is created", async () => {
+    const component = await mountWithCleanup(
+        registry.category("view_widgets").get("school_detailed_incomes").component,
+        { props: { record: { resId: false, dirty: false, data: {} } } }
+    );
+    component.state.data = {
+        created: false, locked: false, historic_frozen: false, groups: [],
+        baseline: false, total: false, currency: false, baseline_ratio: null,
+    };
+    await animationFrame();
+    expect(".o_school_detailed_expenses > button").toHaveCount(1);
+    expect(".o_school_detailed_expenses > details").toHaveCount(0);
+
+    component.state.data.created = true;
+    await animationFrame();
+    expect(".o_school_detailed_expenses > button").toHaveCount(0);
+    expect(".o_school_detailed_expenses > details").toHaveCount(1);
+
+    component.state.data.created = false;
+    component.state.data.locked = true;
+    component.state.data.historic_frozen = true;
+    await animationFrame();
+    expect(".o_school_detailed_expenses > details").toHaveCount(0);
+    expect(".o_school_detailed_expenses > p").toHaveCount(1);
+});
 
 test("grade accordion includes only selected per-student incomes in their applicable grades", () => {
     const grade = { id: 1, name: "Grade 1", students: 10, rate: 50 };

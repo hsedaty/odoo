@@ -22,9 +22,6 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="attributes"><attribute name="class">o_school_form</attribute></xpath>
             <xpath expr="//header" position="inside"><button name="action_open_dashboard" type="object" string="Dashboard" icon="fa-th-large"/></xpath>
-            <xpath expr="//div[hasclass('oe_title')]" position="after">
-                <widget name="school_dismissible_notice" variant="help" string="Start with subjects and grades, then create a prediction. Use the dashboard to review results and the year workspace to enter actuals."/>
-            </xpath>
         </field>
     </record>
     <record id="view_school_dashboard_workspace" model="ir.ui.view">
@@ -32,9 +29,6 @@
         <field name="model">school.academic.years</field>
         <field name="inherit_id" ref="view_school_year_workspace"/>
         <field name="arch" type="xml">
-            <xpath expr="//div[hasclass('oe_title')]" position="after">
-                <widget name="school_dismissible_notice" variant="help" string="Work through the tabs below. Totals update as you save. Forecasts are plans; actuals track real results. Freeze a forecast only when it is approved."/>
-            </xpath>
             <xpath expr="//div[hasclass('row', 'g-3')]" position="attributes">
                 <attribute name="class">row g-3 sp-workspace-metrics</attribute>
             </xpath>

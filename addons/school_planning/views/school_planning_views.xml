@@ -203,7 +203,7 @@
         <field name="name">school.prediction.quick.setup.wizard.form</field>
         <field name="model">school.prediction.quick.setup.wizard</field>
         <field name="arch" type="xml">
-            <form string="Quick Prediction Setup" js_class="school_quick_prediction">
+            <form string="Quick Prediction Setup" js_class="school_quick_prediction" class="o_school_prediction_form">
                 <sheet>
                     <field name="extreme_efficiency" invisible="1"/>
                     <field name="extreme_expenses_initialized" invisible="1"/>
@@ -743,7 +743,7 @@
         <field name="name">school.academic.years.financial.summary.tree</field>
         <field name="model">school.academic.years</field>
         <field name="arch" type="xml">
-            <list string="Financial Summary">
+            <list string="Financial Summary" class="o_school_financial_list">
                 <field name="school_id"/>
                 <field name="academic_year_name"/>
                 <field name="fee_gross_total" sum="Gross Revenue"/>
@@ -757,7 +757,7 @@
         <field name="name">school.academic.years.financial.summary.kanban</field>
         <field name="model">school.academic.years</field>
         <field name="arch" type="xml">
-            <kanban default_group_by="school_id" class="o_kanban_dashboard" sample="1">
+            <kanban default_group_by="school_id" class="o_kanban_dashboard o_school_financial_cards" sample="1">
                 <field name="school_id"/>
                 <field name="academic_year_name"/>
                 <field name="start_date"/>
@@ -850,7 +850,7 @@
         <field name="name">school.academic.years.financial.summary.form</field>
         <field name="model">school.academic.years</field>
         <field name="arch" type="xml">
-            <form string="Financial Summary">
+            <form string="Financial Summary" class="o_school_financial_summary">
                 <sheet>
                     <div class="oe_title mb-3">
                         <h1><field name="academic_year_name" readonly="1"/></h1>
@@ -890,17 +890,17 @@
                             </div>
                         </button>
                     </div>
-                    <div class="row g-3 border-top border-bottom py-3 mb-3">
+                    <div class="row g-3 sp-summary-metrics">
                         <div class="col-12 col-sm-6 col-lg-3">
                             <div class="text-muted small mb-1">Gross Income</div>
                             <div class="fs-4 fw-bold text-success"><field name="fee_gross_total" readonly="1"/></div>
                         </div>
-                        <field name="detailed_income_pending" invisible="1"/>
-                        <widget name="school_dismissible_notice" variant="warning" string="Forecast totals are incomplete: selected Detailed Income items need pricing." invisible="dataset_type != 'forecast' or not detailed_income_pending"/>
                         <div class="col-12 col-sm-6 col-lg-3">
                             <div class="text-muted small mb-1">Tax + Operating Outflow</div>
                             <div class="fs-4 fw-bold"><field name="total_deductions" readonly="1"/></div>
                         </div>
+                        <field name="detailed_income_pending" invisible="1"/>
+                        <widget name="school_dismissible_notice" variant="warning" string="Forecast totals are incomplete: selected Detailed Income items need pricing." invisible="dataset_type != 'forecast' or not detailed_income_pending"/>
                         <div class="col-12 col-sm-6 col-lg-3">
                             <div class="text-muted small mb-1">Startup Investment</div>
                             <div class="fs-4 fw-bold"><field name="startup_cost_total" readonly="1"/></div>
@@ -942,7 +942,6 @@
                         <page string="Income Details" name="income_details">
                             <field name="tuition_gross_total" invisible="1"/>
                             <widget name="school_detailed_incomes" invisible="dataset_type != 'forecast'"/>
-                            <p class="text-muted" invisible="dataset_type != 'forecast'">Fee rows not marked Included in Forecast are retained for reference and excluded from forecast totals.</p>
                             <field name="fee_value_ids" nolabel="1" readonly="1">
                                 <list create="false" edit="false" delete="false" limit="200">
                                     <field name="grade_level_id"/>
