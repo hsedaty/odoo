@@ -53,3 +53,5 @@ access_school_prediction_seed_staffing,school.prediction.seed.staffing,model_sch
 access_school_prediction_seed_expense_category,school.prediction.seed.expense.category,model_school_prediction_seed_expense_category,base.group_user,1,1,1,1
 access_school_prediction_seed_expense_item,school.prediction.seed.expense.item,model_school_prediction_seed_expense_item,base.group_user,1,1,1,1
 access_school_prediction_operational_seed,school.prediction.operational.seed,model_school_prediction_operational_seed,base.group_user,1,1,1,1
+access_school_timetable,school.timetable,model_school_timetable,base.group_user,1,1,1,1
+access_school_timetable_line,school.timetable.line,model_school_timetable_line,base.group_user,1,1,1,1

@@ -3,27 +3,36 @@
     <t t-name="school_planning.DetailedExpenses">
         <div t-if="state.data" class="o_school_detailed_expenses">
             <div class="d-flex flex-wrap justify-content-between gap-3 bg-light border rounded p-3 fw-semibold mb-2">
-                <span t-esc="kind === 'income' ? 'All Income (NO DETAILS)' : 'All Expenses (NO DETAILS)'"/>
+                <span t-esc="kind === 'income' ? (state.data.historic_frozen ? 'Historical fee income' : 'income from tuition ONLY') : 'All Expenses (NO DETAILS)'"/>
                 <span class="d-flex flex-wrap gap-3">
                     <span t-if="state.data.baseline_ratio != null" class="text-muted">
                         <t t-esc="percentage(state.data.baseline_ratio) + ' ' + state.data.baseline_ratio_basis"/>
                     </span>
-                    <span class="text-nowrap" t-esc="money(state.data.baseline)"/>
+                    <span class="text-nowrap" t-esc="money(kind === 'income' ? this.tuitionTotal : state.data.baseline)"/>
                 </span>
             </div>
             <button t-if="!state.data.created and !state.data.locked" type="button" class="btn btn-primary"
                     t-att-disabled="state.busy" t-on-click="() => this.createList()">
                 <t t-esc="kind === 'income' ? 'Create detailed income list' : 'Create detailed expense list'"/>
             </button>
-            <details t-if="state.data.created" class="border rounded" open="open">
+            <p t-if="kind === 'expense' and !state.data.created and !state.data.locked" class="text-muted mt-2">
+                Create a detailed list, then choose which expenses to use in reports.
+            </p>
+            <details t-if="state.data.created or kind === 'income'" class="border rounded" open="open">
                 <summary class="bg-light p-3 fw-semibold">
                     <t t-esc="kind === 'income' ? 'All Income (DETAILED)' : 'All Expenses (DETAILED)'"/>
-                    <span class="float-end text-nowrap" aria-live="polite" t-esc="money(state.data.total)"/>
+                    <span class="float-end text-nowrap" aria-live="polite" t-esc="money(kind === 'income' and !state.data.historic_frozen ? props.record.data.fee_gross_total : state.data.total)"/>
                 </summary>
                 <div class="p-3">
-                    <p class="text-muted mb-2">Adjust an item for this year using an amount or a percentage of revenue before tax. Seed prices and other years are unchanged. This estimate does not change the forecast total.</p>
-                    <p t-if="!state.data.groups.length" class="text-muted mb-0">No seeds match this school's configured curricula.</p>
-                    <p t-if="state.data.pending" class="text-warning mb-2" role="status">Subtotal only: some selected items are missing price information.</p>
+                    <button t-if="kind === 'expense' and !state.data.locked" type="button" class="btn btn-outline-danger btn-sm mb-2"
+                            t-att-disabled="state.busy" t-on-click="() => this.deleteList()">Delete detailed expense list</button>
+                    <p t-if="kind === 'expense'" class="text-muted mb-2">Enter an amount or a percentage of revenue before tax for this year. Complete prices before selecting Detailed for reports. Other years are unchanged.</p>
+                    <p t-elif="state.data.historic_frozen" class="text-muted mb-2">This forecast was approved before Detailed Income was included in totals. Its approved figures remain unchanged.</p>
+                    <p t-elif="state.data.locked" class="text-muted mb-2">This approved income breakdown and its totals are preserved.</p>
+                    <p t-else="" class="text-muted mb-2">Tuition is included automatically. Percentages use tuition revenue before tax. Changing a per-student average resets its grade amounts.</p>
+                    <p t-if="kind === 'income' and props.record.dirty" class="text-muted mb-2" role="status">Save changes to refresh the income breakdown.</p>
+                    <p t-if="state.data.created and !state.data.groups.length" class="text-muted mb-0">No seeds match this school's configured curricula.</p>
+                    <DismissibleNotice t-if="state.data.pending" t-key="state.data.pending" variant="'inline-warning'">Subtotal only: some selected items are missing price information.</DismissibleNotice>
                     <details t-foreach="state.data.groups" t-as="group" t-key="group.name" class="border rounded mb-2">
                         <summary class="bg-light px-3 py-2 fw-semibold">
                             <t t-esc="group.name"/>
@@ -46,25 +55,48 @@
                                         <t t-esc="item.name"/>
                                         <span class="badge text-bg-light ms-2" t-esc="item.price_type === 'fixed' ? 'Fixed' : 'Allocated'"/>
                                     </label>
-                                    <label t-if="item.selected and !item.student_paid and item.price_type === 'allocated' and !item.occurrence_mode" class="d-flex align-items-center gap-2">
-                                        <span class="small">Default budget / unit (<t t-esc="item.price_currency"/>)</span>
-                                        <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
-                                               t-att-value="item.price == null ? '' : item.price"
-                                               t-att-disabled="state.data.locked or state.busy"
-                                               t-on-change="(ev) => this.setPrice(item, ev)"/>
-                                    </label>
-                                    <div t-if="item.selected and !item.student_paid" class="d-flex align-items-center flex-wrap gap-2">
+                                    <div t-if="kind === 'income' and item.selected and item.basis === 'student' and !item.student_paid" class="d-flex align-items-center gap-2">
+                                        <label class="d-flex align-items-center gap-2">
+                                            Average / student
+                                            <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
+                                                   t-att-aria-label="'Average per student for ' + item.name"
+                                                   t-att-value="item.grade_average == null ? '' : item.grade_average"
+                                                   t-att-disabled="state.data.locked or state.busy"
+                                                   t-on-change="(ev) => this.setGradeAmount(item, false, ev)"/>
+                                        </label>
+                                        <button t-if="item.occurrence_mode" type="button" class="btn btn-link btn-sm"
+                                                t-att-disabled="state.data.locked or state.busy"
+                                                t-on-click="() => this.resetOccurrence(item)">Use default</button>
+                                    </div>
+                                    <div t-if="item.selected and !item.student_paid and !(kind === 'income' and item.basis === 'student')" class="d-flex align-items-center flex-wrap gap-2">
                                         <label class="d-flex align-items-center gap-2">
                                             <span class="small">This year</span>
                                             <select class="form-select form-select-sm" t-att-aria-label="'Amount type for ' + item.name"
                                                     t-att-disabled="state.data.locked or state.busy"
                                                     t-att-value="this.occurrenceMode(item)"
                                                     t-on-change="(ev) => this.setOccurrenceMode(item, ev)">
-                                                <option value="amount">Amount</option>
-                                                <option value="revenue_percent">% of revenue before tax</option>
+                                                <option value="amount" t-att-selected="this.occurrenceMode(item) === 'amount'">Amount</option>
+                                                <option value="revenue_percent" t-att-selected="this.occurrenceMode(item) === 'revenue_percent'"><t t-esc="kind === 'income' ? '% of tuition before tax' : '% of revenue before tax'"/></option>
+                                                <option t-if="item.basis === 'student_percent' or item.occurrence_mode === 'student_percent'" value="student_percent" t-att-selected="this.occurrenceMode(item) === 'student_percent'">Per Student in %</option>
                                             </select>
                                         </label>
-                                        <label class="d-flex align-items-center gap-2">
+                                        <label t-if="this.occurrenceMode(item) === 'student_percent'" class="d-flex align-items-center gap-2">
+                                            <span class="small">Amount / student (<t t-esc="state.data.currency_name"/>)</span>
+                                            <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
+                                                   t-att-aria-label="'Amount per student for ' + item.name"
+                                                   t-att-value="item.occurrence_mode === 'student_percent' ? item.occurrence_value : ''"
+                                                   t-att-disabled="state.data.locked or state.busy"
+                                                   t-on-change="(ev) => this.setStudentPercentage(item, 'amount', ev)"/>
+                                        </label>
+                                        <label t-if="this.occurrenceMode(item) === 'student_percent'" class="d-flex align-items-center gap-2">
+                                            <span class="small">Participating students %</span>
+                                            <input type="number" min="0" max="100" step="any" class="form-control form-control-sm" style="width: 7rem"
+                                                   t-att-aria-label="'Participation percentage for ' + item.name"
+                                                   t-att-value="item.occurrence_mode === 'student_percent' ? item.occurrence_percentage : ''"
+                                                   t-att-disabled="state.data.locked or state.busy"
+                                                   t-on-change="(ev) => this.setStudentPercentage(item, 'percentage', ev)"/>
+                                        </label>
+                                        <label t-if="this.occurrenceMode(item) !== 'student_percent'" class="d-flex align-items-center gap-2">
                                             <span class="small" t-esc="this.occurrenceMode(item) === 'amount' ? state.data.currency_name : '%'"/>
                                             <input type="number" min="0" step="any" class="form-control form-control-sm" style="width: 9rem"
                                                    t-att-aria-label="'This year for ' + item.name"

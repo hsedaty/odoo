@@ -244,14 +244,30 @@ class SchoolGradeSetupWizard(models.TransientModel):
     )
 
     @api.model
+    def _presets_for_school(self, school):
+        groups = self.env['school.grade.group.preset'].search([])
+        levels = groups.level_preset_ids
+        configured = self.env['school.grade.levels'].search([('school_id', '=', school.id)]) if school else self.env['school.grade.levels']
+        if configured:
+            names = {(grade.group_id.name.casefold(), grade.name.casefold()) for grade in configured}
+            levels = levels.filtered(lambda level: (level.group_preset_id.name.casefold(), level.name.casefold()) in names)
+            groups = levels.group_preset_id
+        return groups, levels
+
+    @api.model
     def default_get(self, field_names):
         values = super().default_get(field_names)
-        groups = self.env['school.grade.group.preset'].search([])
-        if 'group_preset_ids' in field_names:
+        school = self.env['school.schools'].browse(values.get('school_id') or _extract_school_id_from_context(self.env))
+        groups, levels = self._presets_for_school(school)
+        if 'group_preset_ids' in field_names and 'default_group_preset_ids' not in self.env.context:
             values['group_preset_ids'] = [fields.Command.set(groups.ids)]
-        if 'level_preset_ids' in field_names:
-            values['level_preset_ids'] = [fields.Command.set(groups.level_preset_ids.ids)]
+        if 'level_preset_ids' in field_names and 'default_level_preset_ids' not in self.env.context:
+            values['level_preset_ids'] = [fields.Command.set(levels.ids)]
         return values
+
+    @api.onchange('school_id')
+    def _onchange_school_id(self):
+        self.group_preset_ids, self.level_preset_ids = self._presets_for_school(self.school_id)
 
     def action_apply(self):
         self.ensure_one()
@@ -1461,6 +1477,11 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
     def _ensure_grade_structure(self):
         self.ensure_one()
         school = self.school_id
+        existing_levels = self.env['school.grade.levels'].search([
+            ('school_id', '=', school.id),
+        ], order='sort_order asc, id asc')
+        if existing_levels:
+            return existing_levels
         selected_groups = self.env['school.grade.group.preset'].search([], order='display_order asc, id asc')
         selected_levels = self.env['school.grade.level.preset'].search([], order='sort_order asc, id asc')
 
@@ -1528,26 +1549,27 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
 
     def _ensure_fee_types(self):
         self.ensure_one()
-        school = self.school_id
-        fee_specs = [
-            ('Tuition Fee', 10),
-            ('Admission Fee', 20),
-            ('Activity Fee', 30),
-        ]
-        fee_types = []
-        for name, display_order in fee_specs:
+        seeds = self.env.ref('school_planning.prediction_seed_configuration').income_detail_seed_ids.filtered(
+            lambda seed: seed.active and seed.replaces_tuition
+        )
+        if len(seeds) != 1:
+            raise ValidationError(self.env._('Configure exactly one active tuition item in Detailed Income Seeds before generating a prediction.'))
+        seed = seeds[0]
+        fee_type = self.env['school.fee.types'].search([
+            ('school_id', '=', self.school_id.id), ('forecast_tuition', '=', True),
+        ], order='display_order, id', limit=1)
+        if not fee_type:
             fee_type = self.env['school.fee.types'].search([
-                ('school_id', '=', school.id),
-                ('name', '=ilike', name),
+                ('school_id', '=', self.school_id.id), ('name', '=ilike', seed.name.strip()),
             ], limit=1)
-            if not fee_type:
-                fee_type = self.env['school.fee.types'].create({
-                    'school_id': school.id,
-                    'name': name,
-                    'display_order': display_order,
-                })
-            fee_types.append(fee_type)
-        return fee_types
+        if not fee_type:
+            fee_type = self.env['school.fee.types'].create({
+                'school_id': self.school_id.id, 'name': seed.name.strip(),
+                'display_order': 10, 'forecast_tuition': True,
+            })
+        elif not fee_type.forecast_tuition:
+            fee_type.forecast_tuition = True
+        return [fee_type]
 
     def _ensure_operating_models(self):
         self.ensure_one()
@@ -1916,6 +1938,16 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
 
         self.subject_hours_per_class = self._subject_hours_per_class_from_subjects()
         fee_types = self._ensure_fee_types()
+        stale_fees = existing_years.fee_value_ids.filtered(
+            lambda row: row.fee_type_id.forecast_tuition and row.fee_type_id not in fee_types
+        )
+        if stale_fees:
+            raise ValidationError(self.env._(
+                'Existing forecasts contain additional tuition fee rows: %(fees)s. '
+                'Review those rows before generating; no existing fee data was deleted.',
+                fees=', '.join(sorted(set(stale_fees.fee_type_id.mapped('name')))),
+            ))
+        tuition_type = fee_types[0]
         staff_positions = self._ensure_operating_models() if not self.extreme_efficiency else {}
         years = self._ensure_academic_years(forecast_years=self.forecast_years)
         prediction_tax_percent = min(max(float(self.income_tax_percent or 0.0), 0.0), 100.0)
@@ -1935,13 +1967,6 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
         if self.extreme_efficiency:
             payroll.unlink()
             overrides.unlink()
-
-        shares = [scenario.tuition_share, scenario.admission_share, scenario.activity_share]
-        share_total = sum(shares)
-        if share_total <= 0:
-            shares = [0.8, 0.1, 0.1]
-            share_total = 1.0
-        shares = [share / share_total for share in shares]
 
         salary_ratio = (scenario.salary_ratio or 0.0) / 100.0
         salary_line_map = {
@@ -1979,28 +2004,35 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                     },
                 )
 
-                for fee_type, share in zip(fee_types, shares):
-                    self._upsert(
-                        'school.fee.values',
-                        [
-                            ('academic_year_id', '=', academic_year.id),
-                            ('grade_level_id', '=', level.id),
-                            ('fee_type_id', '=', fee_type.id),
-                        ],
-                        {
-                            'academic_year_id': academic_year.id,
-                            'grade_level_id': level.id,
-                            'fee_type_id': fee_type.id,
-                            'amount': annual_fee_per_student * share,
-                        },
-                    )
+                self._upsert(
+                    'school.fee.values',
+                    [
+                        ('academic_year_id', '=', academic_year.id),
+                        ('grade_level_id', '=', level.id),
+                        ('fee_type_id', '=', tuition_type.id),
+                    ],
+                    {
+                        'academic_year_id': academic_year.id,
+                        'grade_level_id': level.id,
+                        'fee_type_id': tuition_type.id,
+                        'amount': annual_fee_per_student,
+                    },
+                )
 
-            gross_revenue = total_students * annual_fee_per_student
-            net_revenue = gross_revenue * (1.0 - (prediction_tax_percent / 100.0))
+            sources, _pending = academic_year._forecast_income_sources()
+            gross_revenue = sum(source['amount'] for source in sources)
+            net_revenue = gross_revenue * (
+                1.0 - (prediction_tax_percent / 100.0)
+                if academic_year.expense_calculation_mode == 'no_details' else 1.0
+            )
             salary_budget = gross_revenue * salary_ratio
 
             for rule_line in repeating_lines:
                 expense_amount = self._compute_repeating_expense_amount(rule_line, year_no, gross_revenue, total_students, net_revenue)
+                revenue_basis = (
+                    'net' if rule_line.trend.startswith('revenue_after_tax_') else 'gross'
+                ) if rule_line.trend.startswith('revenue_') else False
+                revenue_rate = self._compute_repeating_expense_amount(rule_line, year_no, 100, total_students, 100) if revenue_basis else 0
                 repeating_item = repeating_item_map[rule_line.id]
                 self._upsert(
                     'school.expense.values',
@@ -2014,6 +2046,8 @@ class SchoolPredictionQuickSetupWizard(models.TransientModel):
                         'expense_item_id': False,
                         'amount': expense_amount,
                         'prediction_input_mode': 'extreme' if self.extreme_efficiency else 'normal',
+                        'prediction_revenue_basis': revenue_basis,
+                        'prediction_revenue_rate': revenue_rate,
                         'cost_bucket': rule_line.cost_bucket,
                     },
                 )
@@ -2106,8 +2140,10 @@ class SchoolAcademicYears(models.Model):
         [('gross', 'Before Tax'), ('net', 'After Tax')], readonly=True, copy=False,
     )
     fee_gross_total = fields.Float(string='Gross Revenue', compute='_compute_financial_summary', readonly=True, store=False)
+    tuition_gross_total = fields.Float(string='Tuition Revenue', compute='_compute_financial_summary', readonly=True, store=False)
     tax_deductions_total = fields.Float(string='Tax Deductions', compute='_compute_financial_summary', readonly=True, store=False)
     fee_total = fields.Float(string='Fee Revenue', compute='_compute_financial_summary', readonly=True, store=False)
+    detailed_income_pending = fields.Integer(compute='_compute_financial_summary')
     expense_total = fields.Float(string='Expense Total', compute='_compute_financial_summary', readonly=True, store=False)
     salary_total = fields.Float(string='Salary Total', compute='_compute_financial_summary', readonly=True, store=False)
     new_rooms_expense_total = fields.Float(string='New Rooms Equipment Expense', compute='_compute_financial_summary', readonly=True, store=False)
@@ -2136,6 +2172,8 @@ class SchoolAcademicYears(models.Model):
         for record in self:
             enrollments = record.enrollment_ids
             fee_rows = record.fee_value_ids
+            if record.dataset_type == 'forecast':
+                fee_rows = record._forecast_tuition_rows()
             expense_rows = record.expense_value_ids
             salary_rows = record.employment_salary_ids
             room_plan_rows = record.room_plan_ids
@@ -2144,12 +2182,30 @@ class SchoolAcademicYears(models.Model):
             student_total = sum(row.student_count for row in enrollments)
 
             record.fee_gross_total = sum(row.gross_revenue_amount for row in fee_rows)
+            record.tuition_gross_total = record.fee_gross_total if record.dataset_type == 'forecast' else 0.0
             record.tax_deductions_total = sum(row.tax_amount for row in fee_rows)
             record.fee_total = sum(row.revenue_amount for row in fee_rows)
+            record.detailed_income_pending = 0
+            if record.dataset_type == 'forecast':
+                sources, record.detailed_income_pending = record._forecast_income_sources()
+                detailed_total = sum(source['amount'] for source in sources if source['kind'] == 'detailed')
+                detailed_tax = (detailed_total * record.prediction_income_tax_percent / 100
+                                if record.expense_calculation_mode == 'no_details' and not record.legacy_detailed_tax else 0)
+                record.fee_gross_total += detailed_total
+                record.tax_deductions_total += detailed_tax
+                record.fee_total += detailed_total - detailed_tax
             record.expense_total = expense_rows._category_amount_total()
             record.salary_total = sum(row.annual_cost for row in salary_rows)
+            if record.dataset_type == 'forecast' and record.expense_calculation_mode == 'detailed':
+                if record.baseline_locked:
+                    record.expense_total = record.baseline_totals['expense_total']
+                else:
+                    record.expense_total = record._selected_detailed_expense_total()
+                    if not record.payroll_summary_enabled:
+                        record.expense_total += expense_rows.filtered(lambda row: row.cost_bucket == 'employee')._category_amount_total()
             if record.payroll_summary_enabled:
-                record.expense_total = expense_rows.filtered(lambda row: row.cost_bucket != 'employee')._category_amount_total()
+                if record.dataset_type != 'forecast' or record.expense_calculation_mode != 'detailed':
+                    record.expense_total = expense_rows.filtered(lambda row: row.cost_bucket != 'employee')._category_amount_total()
                 record.salary_total = record._payroll_revenue_base() * record.payroll_rate / 100 if record.payroll_basis == 'percent' else record.payroll_fixed_amount
             record.startup_cost_total = sum(row.startup_cost for row in asset_price_rows) if record.infrastructure_mode == 'new' else 0
             record.new_rooms_expense_total = (record.startup_cost_total if record.infrastructure_seeded else sum(row.new_rooms_asset_cost for row in room_plan_rows)) if record.infrastructure_mode == 'new' else 0
@@ -2158,21 +2214,31 @@ class SchoolAcademicYears(models.Model):
             record.operating_profit = record.fee_total - record.operating_cost_total
             record.net_budget = record.operating_profit - record.startup_cost_total
 
+            saved_totals = record.baseline_totals or {}
+            record.grade_student_costs = (
+                saved_totals['grade_student_costs'] if record.baseline_locked and 'grade_student_costs' in saved_totals
+                else record._per_student_expense_costs()
+            )
+            record.grade_income_totals = (
+                saved_totals.get('grade_income_totals', {}) if record.baseline_locked
+                else record._detailed_grade_income_totals()
+            )
+            grade_costs = record.grade_student_costs or {}
+            grade_fee_rows = record._forecast_tuition_rows() if record.dataset_type == 'forecast' else fee_rows
             revenue_by_grade_level = {}
             students_by_grade_level = {}
             for enrollment in enrollments:
                 level_id = enrollment.grade_level_id.id
                 students_by_grade_level[level_id] = enrollment.student_count
                 revenue_by_grade_level[level_id] = sum(
-                    row.revenue_amount for row in fee_rows
+                    row.gross_revenue_amount for row in grade_fee_rows
                     if row.grade_level_id.id == level_id
-                )
+                ) + (record.grade_income_totals or {}).get(str(level_id), 0.0)
 
             grade_level_revenue_per_student = []
             grade_level_cost_per_student = []
             grade_group_revenue_per_student = {}
             grade_group_cost_per_student = {}
-            cost_per_student_base = record.total_deductions / student_total if student_total else 0.0
 
             for enrollment in enrollments:
                 level_id = enrollment.grade_level_id.id
@@ -2180,13 +2246,14 @@ class SchoolAcademicYears(models.Model):
                 revenue_per_student = revenue_by_grade_level.get(level_id, 0.0) / students if students else 0.0
 
                 grade_level_revenue_per_student.append(revenue_per_student)
-                grade_level_cost_per_student.append(cost_per_student_base)
+                cost_per_student = grade_costs.get(str(level_id), 0.0)
+                grade_level_cost_per_student.append(cost_per_student)
 
                 group = enrollment.grade_level_id.group_id
                 if group:
                     group_id = group.id
                     grade_group_revenue_per_student.setdefault(group_id, []).append(revenue_per_student)
-                    grade_group_cost_per_student.setdefault(group_id, []).append(cost_per_student_base)
+                    grade_group_cost_per_student.setdefault(group_id, []).append(cost_per_student)
 
             record.total_enrolled_students = student_total
             record.revenue_per_student_avg = record.fee_total / student_total if student_total else 0.0
@@ -2222,6 +2289,8 @@ class SchoolAcademicYears(models.Model):
         self.ensure_one()
         action = self.env.ref('school_planning.action_school_fee_values_revenue_chart').read()[0]
         action['domain'] = [('academic_year_id', '=', self.id)]
+        if self.dataset_type == 'forecast':
+            action['domain'].append(('id', 'in', self._forecast_tuition_rows().ids))
         action['context'] = {'default_academic_year_id': self.id}
         return action
 
@@ -2488,6 +2557,7 @@ class SchoolFeeTypes(models.Model):
         default=lambda self: _extract_school_id_from_context(self.env),
     )
     name = fields.Char(string='Name', required=True, size=100)
+    forecast_tuition = fields.Boolean(string='Forecast Tuition')
     display_order = fields.Integer(string='Display Order', required=True)
     is_taxable = fields.Boolean(string='Is Taxable', default=False, required=True)
     tax_rule_id = fields.Many2one(
@@ -2496,6 +2566,26 @@ class SchoolFeeTypes(models.Model):
         ondelete='set null',
         domain="[('school_id', '=', school_id)]",
     )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        prepared = []
+        for values in vals_list:
+            values = dict(values)
+            if 'forecast_tuition' not in values:
+                values['forecast_tuition'] = (values.get('name') or '').strip().casefold() in ('tuition', 'tuition fee')
+            prepared.append(values)
+        return super().create(prepared)
+
+    def write(self, values):
+        result = super().write(values)
+        if 'forecast_tuition' in values:
+            years = self.env['school.academic.years'].search([
+                ('dataset_type', '=', 'forecast'), ('baseline_locked', '=', False),
+                ('fee_value_ids.fee_type_id', 'in', self.ids),
+            ])
+            self.env['school.financial.report']._refresh_for_academic_years(years.ids)
+        return result
 
     @api.constrains('school_id', 'tax_rule_id')
     def _check_tax_school(self):
@@ -2812,10 +2902,12 @@ class SchoolGradeEnrollment(models.Model):
     
     # GREEN TEXT (Calculated Result)
     class_count = fields.Integer(string='Class Count (Calculated)', compute='_compute_class_count', store=True)
-    revenue_total = fields.Float(string='Revenue Total', compute='_compute_financial_metrics', store=False)
-    cost_total = fields.Float(string='Cost Total', compute='_compute_financial_metrics', store=False)
-    revenue_per_student = fields.Float(string='Revenue Per Student', compute='_compute_financial_metrics', store=False)
-    cost_per_student = fields.Float(string='Cost Per Student', compute='_compute_financial_metrics', store=False)
+    revenue_total = fields.Float(string='Fee Revenue', compute='_compute_financial_metrics', store=False)
+    cost_total = fields.Float(string='Grade Expense Cost', compute='_compute_financial_metrics', store=False,
+                             help='Per-student expense cost multiplied by grade enrollment; shared school costs are excluded.')
+    revenue_per_student = fields.Float(string='Gross Revenue Per Student', compute='_compute_financial_metrics', store=False)
+    cost_per_student = fields.Float(string='Per-student Expense Cost', compute='_compute_financial_metrics', store=False,
+                                   help='Sum of the per-student rates of selected detailed expenses assigned to this grade.')
 
     @api.depends('student_count', 'max_students_per_class')
     def _compute_class_count(self):
@@ -2881,39 +2973,29 @@ class SchoolGradeEnrollment(models.Model):
 
         self.env['school.financial.report']._refresh_for_academic_years(academic_year_ids)
 
-    @api.depends('academic_year_id', 'grade_level_id', 'student_count')
+    @api.depends('academic_year_id', 'grade_level_id', 'student_count',
+                 'academic_year_id.dataset_type', 'academic_year_id.grade_student_costs', 'academic_year_id.grade_income_totals',
+                 'academic_year_id.fee_value_ids.gross_revenue_amount',
+                 'academic_year_id.fee_value_ids.revenue_amount',
+                 'academic_year_id.fee_value_ids.fee_type_id.forecast_tuition',
+                 'academic_year_id.detailed_incomes_created',
+                 'academic_year_id.detailed_income_seed_ids.replaces_tuition',
+                 'academic_year_id.baseline_locked', 'academic_year_id.baseline_totals',
+                 'academic_year_id.baseline_income_sources')
     def _compute_financial_metrics(self):
         for record in self:
             fee_rows = self.env['school.fee.values'].search([
                 ('academic_year_id', '=', record.academic_year_id.id),
                 ('grade_level_id', '=', record.grade_level_id.id),
             ])
-            revenue_total = sum(fee_rows.mapped('revenue_amount'))
-
-            year_fee_rows = self.env['school.fee.values'].search([
-                ('academic_year_id', '=', record.academic_year_id.id)
-            ])
-            year_expense_rows = self.env['school.expense.values'].search([
-                ('academic_year_id', '=', record.academic_year_id.id)
-            ])
-            year_salary_rows = self.env['school.employment.salaries'].search([
-                ('academic_year_id', '=', record.academic_year_id.id)
-            ])
-            year_room_rows = self.env['school.room.plan'].search([
-                ('academic_year_id', '=', record.academic_year_id.id)
-            ])
-            year_enrollments = self.env['school.grade.enrollment'].search([
-                ('academic_year_id', '=', record.academic_year_id.id)
-            ])
-
-            year_total_students = sum(year_enrollments.mapped('student_count'))
-            total_deductions = (
-                sum(year_fee_rows.mapped('tax_amount'))
-                + year_expense_rows._category_amount_total()
-                + sum(year_salary_rows.mapped('annual_cost'))
-                + sum(year_room_rows.mapped('new_rooms_asset_cost'))
-            )
-            cost_per_student = (total_deductions / year_total_students) if year_total_students else 0.0
+            if record.academic_year_id.dataset_type == 'forecast':
+                fee_rows &= record.academic_year_id._forecast_tuition_rows()
+            year = record.academic_year_id
+            legacy_baseline = (year.dataset_type == 'forecast' and year.baseline_locked
+                               and 'grade_student_costs' not in (year.baseline_totals or {}))
+            revenue_total = (sum(fee_rows.mapped('revenue_amount' if legacy_baseline else 'gross_revenue_amount'))
+                             + (year.grade_income_totals or {}).get(str(record.grade_level_id.id), 0.0))
+            cost_per_student = (record.academic_year_id.grade_student_costs or {}).get(str(record.grade_level_id.id), 0.0)
 
             record.revenue_total = revenue_total
             record.revenue_per_student = (revenue_total / record.student_count) if record.student_count else 0.0
@@ -2961,17 +3043,28 @@ class SchoolFeeValues(models.Model):
     gross_revenue_amount = fields.Float(string='Gross Revenue', compute='_compute_revenue_metrics', store=True, aggregator='sum')
     tax_amount = fields.Float(string='Tax Deduction', compute='_compute_revenue_metrics', store=True, aggregator='sum')
     revenue_amount = fields.Float(string='Revenue (Calculated)', compute='_compute_revenue_metrics', store=True, aggregator='sum')
+    included_in_forecast = fields.Boolean(string='Included in Forecast', compute='_compute_included_in_forecast')
 
-    @api.depends('academic_year_id', 'academic_year_id.dataset_type', 'academic_year_id.prediction_income_tax_percent', 'academic_year_id.enrollment_ids.student_count', 'grade_level_id', 'amount', 'fee_type_id', 'fee_type_id.is_taxable', 'fee_type_id.tax_rule_id', 'fee_type_id.tax_rule_id.percentage')
+    @api.depends('academic_year_id.dataset_type', 'academic_year_id.baseline_locked',
+                 'academic_year_id.baseline_income_sources', 'academic_year_id.detailed_incomes_created',
+                 'academic_year_id.detailed_income_seed_ids.replaces_tuition', 'fee_type_id.forecast_tuition')
+    def _compute_included_in_forecast(self):
+        for row in self:
+            year = row.academic_year_id
+            row.included_in_forecast = year.dataset_type == 'forecast' and row in year._forecast_tuition_rows()
+
+    @api.depends('academic_year_id', 'academic_year_id.dataset_type', 'academic_year_id.prediction_income_tax_percent', 'academic_year_id.expense_calculation_mode', 'academic_year_id.legacy_detailed_tax', 'academic_year_id.enrollment_ids.student_count', 'grade_level_id', 'amount', 'fee_type_id', 'fee_type_id.is_taxable', 'fee_type_id.tax_rule_id', 'fee_type_id.tax_rule_id.percentage')
     def _compute_revenue_metrics(self):
         for record in self:
             enrollment = record.academic_year_id.enrollment_ids.filtered(lambda enrollment: enrollment.grade_level_id == record.grade_level_id)[:1]
             students = enrollment.student_count if enrollment else 0
             gross = record.amount * students
             tax_rate = 0.0
-            if record.academic_year_id.dataset_type == 'forecast':
+            if (record.academic_year_id.dataset_type == 'forecast'
+                    and record.academic_year_id.expense_calculation_mode == 'no_details'
+                    and not record.academic_year_id.legacy_detailed_tax):
                 tax_rate = min(max(float(record.academic_year_id.prediction_income_tax_percent or 0.0), 0.0), 100.0) / 100.0
-            elif record.fee_type_id.is_taxable and record.fee_type_id.tax_rule_id:
+            elif record.academic_year_id.dataset_type != 'forecast' and record.fee_type_id.is_taxable and record.fee_type_id.tax_rule_id:
                 tax_rate = (record.fee_type_id.tax_rule_id.percentage or 0.0)
             tax_amount = gross * tax_rate
 
@@ -3011,6 +3104,10 @@ class SchoolExpenseValues(models.Model):
         ('extreme', 'Quick Prediction - Extreme Efficiency'),
         ('shared', 'Quick Prediction - One-Time'),
     ], readonly=True, copy=False)
+    prediction_revenue_basis = fields.Selection(
+        [('gross', 'Revenue Before Tax'), ('net', 'Revenue After Tax')], readonly=True, copy=False,
+    )
+    prediction_revenue_rate = fields.Float(readonly=True, copy=False)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -3019,6 +3116,8 @@ class SchoolExpenseValues(models.Model):
         return records
 
     def write(self, vals):
+        if 'amount' in vals and 'prediction_revenue_basis' not in vals and not self.env.context.get('recompute_prediction_expense'):
+            vals = {**vals, 'prediction_revenue_basis': False, 'prediction_revenue_rate': 0}
         old_year_ids = self.mapped('academic_year_id').ids
         result = super().write(vals)
         self.env['school.financial.report']._refresh_for_academic_years(list(set(old_year_ids) | set(self.mapped('academic_year_id').ids)))
@@ -3479,6 +3578,7 @@ class SchoolFinancialReport(models.Model):
     total_enrolled_students = fields.Integer(string='Enrolled Students')
 
     gross_revenue = fields.Float(string='Gross Revenue')
+    income_incomplete = fields.Boolean(string='Incomplete Income')
     tax_amount = fields.Float(string='Tax Deductions')
     net_revenue = fields.Float(string='Net Revenue')
 
@@ -3540,6 +3640,22 @@ class SchoolFinancialReport(models.Model):
                 academic_year_ids.add(next_year.id)
         years = self.env['school.academic.years'].browse(list(academic_year_ids)).exists()
 
+        for year in years.filtered(lambda item: item.dataset_type == 'forecast' and not item.baseline_locked):
+            expenses = year.expense_value_ids.filtered('prediction_revenue_basis')
+            if not expenses:
+                continue
+            year.invalidate_recordset([
+                name for name, field in year._fields.items()
+                if field.compute == '_compute_financial_summary'
+            ])
+            for expense in expenses:
+                revenue = year.fee_total if expense.prediction_revenue_basis == 'net' else year.fee_gross_total
+                amount = max(revenue, 0) * expense.prediction_revenue_rate / 100
+                if expense.amount != amount:
+                    expense.with_context(
+                        defer_school_financial_refresh=True, recompute_prediction_expense=True,
+                    ).write({'amount': amount})
+
         self.env['school.employment.salaries'].search([
             ('academic_year_id', 'in', years.ids),
         ]).invalidate_recordset(['employee_count', 'annual_cost'])
@@ -3557,6 +3673,7 @@ class SchoolFinancialReport(models.Model):
                 'end_date': year.end_date,
                 'total_enrolled_students': year.total_enrolled_students,
                 'gross_revenue': year.fee_gross_total,
+                'income_incomplete': bool(year.detailed_income_pending),
                 'tax_amount': year.tax_deductions_total,
                 'net_revenue': year.fee_total,
                 'expense_total': year.expense_total,

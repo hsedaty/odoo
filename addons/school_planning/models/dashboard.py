@@ -29,12 +29,13 @@ TREND_METRICS = (
 )
 
 BREAKDOWN_METRICS = (
+    {'key': 'income_by_source', 'label': 'Gross income by source', 'unit': 'money', 'group': 'Income source'},
     {'key': 'expense_category_spend', 'label': 'Expenses by category', 'unit': 'money', 'group': 'Category'},
     {'key': 'detailed_expense_category_spend', 'label': 'Detailed expense estimates by category (priced items)', 'unit': 'money', 'group': 'Category'},
     {'key': 'payroll_by_position', 'label': 'Payroll by staff position', 'unit': 'money', 'group': 'Staff position'},
     {'key': 'headcount_by_position', 'label': 'Headcount by staff position', 'unit': 'count', 'group': 'Staff position'},
     {'key': 'students_by_grade', 'label': 'Students by grade', 'unit': 'count', 'group': 'Grade'},
-    {'key': 'revenue_by_grade', 'label': 'Net revenue by grade', 'unit': 'money', 'group': 'Grade'},
+    {'key': 'revenue_by_grade', 'label': 'Fee revenue by grade', 'unit': 'money', 'group': 'Grade'},
     {'key': 'rooms_by_type', 'label': 'Rooms by type', 'unit': 'count', 'group': 'Room type'},
     {'key': 'asset_purchases_by_item', 'label': 'Asset purchases by item', 'unit': 'count', 'group': 'Asset item'},
     {'key': 'asset_value_by_item', 'label': 'Startup investment by item', 'unit': 'money', 'group': 'Asset item'},
@@ -119,26 +120,29 @@ class SchoolDashboard(models.Model):
             label = label or _('Uncategorized')
             values[metric][label] = values[metric].get(label, 0) + amount
 
-        use_details = any(
-            year.dataset_type == 'forecast' and year.detailed_expenses_created for year in years
-        )
         for year in years:
+            if year.dataset_type == 'forecast':
+                sources, _pending = year._forecast_income_sources()
+                for source in sources:
+                    add('income_by_source', source['name'], source['amount'])
+            else:
+                for fee in year.fee_value_ids:
+                    add('income_by_source', fee.fee_type_id.name, fee.gross_revenue_amount)
+            use_details = year.dataset_type == 'forecast' and year.expense_calculation_mode == 'detailed'
             for enrollment in year.enrollment_ids:
                 add('students_by_grade', enrollment.grade_level_id.name, enrollment.student_count)
                 add('revenue_by_grade', enrollment.grade_level_id.name, enrollment.revenue_total)
             for category, expenses in year.expense_value_ids.grouped('expense_category_id').items():
                 if use_details:
-                    expenses = expenses.filtered(
-                        lambda row: row.cost_bucket != 'operating' or not row.prediction_input_mode
-                    )
+                    expenses = expenses.filtered(lambda row: row.cost_bucket != 'operating')
                 if expenses:
                     add('expense_category_spend', category.name, expenses._category_amount_total())
             selected_seeds = year.with_context(active_test=False).detailed_expense_seed_ids
             if year.dataset_type == 'forecast' and year.detailed_expenses_created and selected_seeds:
-                selected = year._detailed_expense_catalog() & selected_seeds
-                for seed, amount, _note in year._detailed_expense_amounts(selected):
+                for seed, amount, _note in year._detailed_expense_amounts(selected_seeds):
                     if amount:
-                        add('expense_category_spend', seed.category_seed_id.name, amount)
+                        if use_details:
+                            add('expense_category_spend', seed.category_seed_id.name, amount)
                         add('detailed_expense_category_spend', seed.category_seed_id.name, amount)
             for salary in year.employment_salary_ids:
                 position = salary.staff_position_id.title
@@ -237,12 +241,16 @@ class SchoolDashboard(models.Model):
                     'id': level.id,
                     'name': f'{year.school_id.name} - {level.name}' if combined else level.name,
                     'group': level.group_id.name or '',
-                    'students': 0, 'revenue': 0.0, 'cost': 0.0,
+                    'students': 0, 'revenue': 0.0, 'cost': 0.0, 'cost_per_student': 0.0,
                 })
                 grade['students'] += enrollment.student_count
                 grade['revenue'] += enrollment.revenue_total
                 grade['cost'] += enrollment.cost_total
+                grade['cost_per_student'] = enrollment.cost_per_student
 
+        for grade in grades.values():
+            if grade['students']:
+                grade['cost_per_student'] = grade['cost'] / grade['students']
         totals = {name: sum(row[name] for row in rows) for name in FINANCIAL_METRICS}
         totals['student_years'] = sum(row['students'] for row in rows)
         totals['students'] = sum(latest_students.values())
@@ -268,8 +276,9 @@ class SchoolDashboard(models.Model):
                 for metric in BREAKDOWN_METRICS
             ],
             'breakdowns': self._chart_breakdowns(selected),
+            'income_incomplete': any(year.detailed_income_pending for year in selected if year.dataset_type == 'forecast'),
             'expense_breakdown_uses_details': any(
-                year.dataset_type == 'forecast' and year.detailed_expenses_created for year in selected
+                year.dataset_type == 'forecast' and year.expense_calculation_mode == 'detailed' for year in selected
             ),
             'comparisons': self._comparison_data(selected, dataset, combined),
             'chart_preferences': self._normalized_chart_preferences(school.sudo().dashboard_chart_preferences or {}),

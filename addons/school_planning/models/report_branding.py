@@ -268,6 +268,10 @@ class SchoolAcademicYears(models.Model):
                     y -= 18
 
             y = draw_section('Core Financial Metrics', y)
+            if year.dataset_type == 'forecast':
+                draw_metric_rows([(
+                    'Expenses Used', ('Detailed' if year.expense_calculation_mode == 'detailed' else 'No Details', navy),
+                )])
             draw_metric_rows([
                 ('Gross Revenue', money(year, year.fee_gross_total, currency)),
                 ('Tax Deductions', money(year, year.tax_deductions_total, currency, outflow=True)),
@@ -307,10 +311,19 @@ class SchoolAcademicYears(models.Model):
                     y = page_height - (157 if provisional else 115)
                 y = draw_section('Revenue and Cost by Grade Level', y)
                 pdf.setFillColor(muted)
+                pdf.setFont(_REGULAR_FONT, 7)
+                legacy_grade_metrics = (year.dataset_type == 'forecast' and year.baseline_locked
+                                        and 'grade_student_costs' not in (year.baseline_totals or {}))
+                grade_note = ('Historical net fee revenue and previously allocated costs.' if legacy_grade_metrics
+                              else 'Gross grade income before tax; grade costs include assigned per-student expenses only.')
+                pdf.drawString(left, y, grade_note)
+                y -= 13
+                pdf.setFillColor(muted)
                 pdf.setFont(_REGULAR_FONT, 7.5)
                 pdf.drawRightString(right, y, f'Currency: {safe_text(currency.name)}')
                 y -= 13
-                headers = ('Group', 'Grade Level', 'Students', 'Revenue', 'Revenue/Student', 'Cost', 'Cost/Student')
+                headers = ('Group', 'Grade Level', 'Students', 'Net Fees' if legacy_grade_metrics else 'Gross Income',
+                           'Revenue/Student', 'Cost', 'Cost/Student')
                 column_bounds = (
                     left, left + 66, left + 137, left + 180,
                     left + 256, left + 337, left + 413, right,
@@ -372,6 +385,31 @@ class SchoolAcademicYears(models.Model):
                             pdf.setFont(_REGULAR_FONT, font_size)
                             pdf.drawString(cell_left + 2, y, value)
                     y -= 17
+
+            if year.dataset_type == 'forecast':
+                if y < 130:
+                    draw_footer(year)
+                    pdf.showPage()
+                    draw_header(year, continued=True)
+                    y = page_height - 115
+                y = draw_section('Detailed Income', y)
+                if year.detailed_income_pending:
+                    draw_metric_rows([('Income pricing incomplete; totals are provisional', ('', warning_text))])
+                for source in year._forecast_income_sources()[0]:
+                    if y < 65:
+                        draw_footer(year)
+                        pdf.showPage()
+                        draw_header(year, continued=True)
+                        y = draw_section('Detailed Income (Continued)', page_height - 115)
+                    draw_metric_rows([(truncate(source['name'], 300), money(year, source['amount'], currency))])
+                if y < 65:
+                    draw_footer(year)
+                    pdf.showPage()
+                    draw_header(year, continued=True)
+                    y = page_height - 115
+                pdf.setFillColor(muted)
+                pdf.setFont(_REGULAR_FONT, 7)
+                pdf.drawString(left, y, 'Grade income includes per-student items; other Detailed Income is not allocated to grades.')
 
             draw_footer(year)
             if year_idx < len(years) - 1:

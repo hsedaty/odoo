@@ -23,7 +23,7 @@
             <xpath expr="//form" position="attributes"><attribute name="class">o_school_form</attribute></xpath>
             <xpath expr="//header" position="inside"><button name="action_open_dashboard" type="object" string="Dashboard" icon="fa-th-large"/></xpath>
             <xpath expr="//div[hasclass('oe_title')]" position="after">
-                <div class="sp-workspace-help">Start with subjects and grades, then create a prediction. Use the dashboard to review results and the year workspace to enter actuals.</div>
+                <widget name="school_dismissible_notice" variant="help" string="Start with subjects and grades, then create a prediction. Use the dashboard to review results and the year workspace to enter actuals."/>
             </xpath>
         </field>
     </record>
@@ -33,7 +33,7 @@
         <field name="inherit_id" ref="view_school_year_workspace"/>
         <field name="arch" type="xml">
             <xpath expr="//div[hasclass('oe_title')]" position="after">
-                <div class="sp-workspace-help">Work through the tabs below. Totals update as you save. Forecasts are plans; actuals track real results. Freeze a forecast only when it is approved.</div>
+                <widget name="school_dismissible_notice" variant="help" string="Work through the tabs below. Totals update as you save. Forecasts are plans; actuals track real results. Freeze a forecast only when it is approved."/>
             </xpath>
             <xpath expr="//div[hasclass('row', 'g-3')]" position="attributes">
                 <attribute name="class">row g-3 sp-workspace-metrics</attribute>
@@ -46,7 +46,7 @@
         <field name="inherit_id" ref="view_school_prediction_quick_setup_wizard_form"/>
         <field name="arch" type="xml">
             <xpath expr="//sheet/group[1]" position="before">
-                <div class="sp-workspace-help"><strong>Build your forecast in three steps.</strong> Choose the period, enter students and fees for each year, then review expenses before generating. You can refine the results in each year's workspace.</div>
+                <widget name="school_dismissible_notice" variant="help" title="Build your forecast in three steps." string="Choose the period, enter students and fees for each year, then review expenses before generating. You can refine the results in each year's workspace."/>
             </xpath>
         </field>
     </record>

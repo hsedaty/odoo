@@ -69,6 +69,9 @@
                             <strong>Actuals are still in progress.</strong>
                             These figures are provisional; unentered sections may show zero.
                         </div>
+                        <div t-if="o.dataset_type == 'forecast' and o.detailed_income_pending" class="school-report-warning">
+                            Forecast totals are incomplete: selected Detailed Income items need pricing.
+                        </div>
                         <div class="school-report-subtitle mb-2">
                             Green: inflow / surplus | Red (-): outflow / deficit | Zero: neutral
                         </div>
@@ -110,6 +113,9 @@
                         </div>
 
                         <div class="school-report-section">Core Financial Metrics</div>
+                        <p t-if="o.dataset_type == 'forecast'">
+                            Expenses used: <span t-field="o.expense_calculation_mode"/>
+                        </p>
                         <table>
                             <thead>
                                 <tr>
@@ -143,6 +149,26 @@
                             </tbody>
                         </table>
 
+                        <t t-if="o.dataset_type == 'forecast'">
+                            <t t-set="income_sources" t-value="o._forecast_income_sources()[0]"/>
+                            <div class="school-report-section">Detailed Income</div>
+                            <table>
+                                <thead><tr><th>Income Source</th><th class="text-end">Gross Revenue</th></tr></thead>
+                                <tbody>
+                                    <tr t-foreach="income_sources" t-as="source">
+                                        <td t-out="source['name']"/>
+                                        <td class="text-end">
+                                            <t t-call="school_planning.report_school_financial_summary_money">
+                                                <t t-set="amount" t-value="source['amount']"/>
+                                                <t t-set="outflow" t-value="False"/>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <p>Grade revenue includes tuition and per-student Detailed Income. Other Detailed Income is not allocated to grades; older approved forecasts retain their historical figures.</p>
+                        </t>
+
                         <div class="school-report-section">Enrollment and Unit Economics</div>
                         <table>
                             <thead>
@@ -174,13 +200,16 @@
 
                         <t t-if="school.report_show_grade_details">
                             <div class="school-report-section">Revenue and Cost by Grade Level</div>
+                            <t t-set="legacy_grade_metrics" t-value="o.dataset_type == 'forecast' and o.baseline_locked and 'grade_student_costs' not in (o.baseline_totals or {})"/>
+                            <div t-if="legacy_grade_metrics" class="school-report-muted">Historical net fee revenue and previously allocated costs.</div>
+                            <div t-else="" class="school-report-muted">Gross fees before tax. Grade costs include only assigned per-student detailed expenses, not shared school costs.</div>
                             <table>
                                 <thead>
                                     <tr>
                                         <th>Grade Group</th>
                                         <th>Grade Level</th>
                                         <th class="text-end">Students</th>
-                                        <th class="text-end">Revenue</th>
+                                        <th class="text-end"><t t-if="legacy_grade_metrics">Net Fee Revenue</t><t t-else="">Gross Fee Revenue</t></th>
                                         <th class="text-end">Revenue / Student</th>
                                         <th class="text-end">Cost</th>
                                         <th class="text-end">Cost / Student</th>

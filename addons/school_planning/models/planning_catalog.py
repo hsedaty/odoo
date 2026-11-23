@@ -92,5 +92,9 @@ class PredictionSeedConfiguration(models.Model):
                         name, price_type = entry if isinstance(entry, tuple) else (entry, 'allocated')
                         item_model.create({
                             'configuration_id': config.id, 'category_seed_id': category.id,
-                            'name': name, 'price_type': price_type, 'basis': 'fixed',
+                            'name': name, 'price_type': price_type,
+                            'basis': 'student' if kind == 'income' and group_name == 'Incomes'
+                                                   and not section_name and name == 'Tuition Fees' else 'fixed',
+                            'replaces_tuition': kind == 'income' and group_name == 'Incomes'
+                                                and not section_name and name == 'Tuition Fees',
                         })

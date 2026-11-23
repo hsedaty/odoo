@@ -1,6 +1,7 @@
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 from odoo.tools.misc import formatLang
+from markupsafe import Markup
 
 
 COMPLETION = [('not_started', 'Not Started'), ('in_progress', 'In Progress'), ('complete', 'Complete')]
@@ -41,6 +42,10 @@ class AcademicYears(models.Model):
     typed_year_name = fields.Char(compute='_compute_period_key', store=True)
     baseline_locked = fields.Boolean(string='Approved Baseline', readonly=True, copy=False)
     baseline_totals = fields.Json(readonly=True, copy=False)
+    forecast_fee_growth_batch = fields.Char(readonly=True, copy=False, index=True)
+    forecast_fee_growth_percent = fields.Float(readonly=True, copy=False)
+    original_forecast_settings = fields.Json(readonly=True, copy=False)
+    original_forecast_settings_display = fields.Html(compute='_compute_original_forecast_settings_display', sanitize=False)
     enrollment_status = fields.Selection(COMPLETION, default='not_started', required=True)
     income_status = fields.Selection(COMPLETION, default='not_started', required=True)
     expenses_status = fields.Selection(COMPLETION, default='not_started', required=True)
@@ -62,6 +67,36 @@ class AcademicYears(models.Model):
     actual_setup_tool = fields.Selection(ACTUAL_TOOLS['setup'], default='expense_items', string='Shared Setup',
                                          help='School setup is shared with Forecast. Tax types belong to this school; seed configuration is global.')
     actual_payroll_months = fields.Integer(string='Common Payroll Months', default=12)
+
+    @api.depends('original_forecast_settings')
+    def _compute_original_forecast_settings_display(self):
+        for year in self:
+            if not year.original_forecast_settings:
+                year.original_forecast_settings_display = Markup('<p>{}</p>').format(year.env._(
+                    'Original generation settings were not saved for this forecast.'
+                ))
+                continue
+            sections = []
+            for section in year.original_forecast_settings:
+                rows = Markup('').join(
+                    Markup('<tr><th scope="row">{}</th><td>{}</td></tr>').format(label, value)
+                    for label, value in section['values']
+                )
+                sections.append(Markup('<h4>{}</h4><table class="table table-sm"><tbody>{}</tbody></table>').format(
+                    section['title'], rows,
+                ))
+            year.original_forecast_settings_display = Markup(
+                '<p>{}</p>{}'
+            ).format(year.env._('Inputs saved when this forecast was last generated. Later edits are not shown.'),
+                     Markup('').join(sections))
+
+    def action_show_original_forecast_settings(self):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window', 'name': self.env._('Original Forecast Settings'),
+            'res_model': self._name, 'res_id': self.id, 'view_mode': 'form', 'target': 'new',
+            'views': [(self.env.ref('school_planning.view_school_original_forecast_settings').id, 'form')],
+        }
     actual_fee_tax_percent = fields.Float(string='Common Fee Tax %', default=0)
     actual_fee_type_id = fields.Many2one('school.fee.types', string='Fee')
     actual_fee_amount = fields.Float(string='Fee / Student', default=0)
@@ -89,14 +124,20 @@ class AcademicYears(models.Model):
             year.payroll_basis = 'amount'
             year.payroll_fixed_amount = year.payroll_expense_ids._category_amount_total()
 
-    @api.depends('fee_gross_total', 'total_enrolled_students', 'fee_value_ids.amount')
+    @api.depends('total_enrolled_students', 'fee_value_ids.amount', 'fee_value_ids.gross_revenue_amount',
+                 'fee_value_ids.fee_type_id.forecast_tuition')
     def _compute_annual_fee_input(self):
         for year in self:
-            if year.total_enrolled_students:
-                year.annual_fee_input = year.fee_gross_total / year.total_enrolled_students
+            rows = year.fee_value_ids
+            students = year.total_enrolled_students
+            if year.dataset_type == 'forecast' and not (year.baseline_locked and not year.baseline_income_sources):
+                rows = year._forecast_tuition_rows()
+                students = sum(year._tuition_scope_enrollments().mapped('student_count'))
+            if students:
+                year.annual_fee_input = sum(rows.mapped('gross_revenue_amount')) / students
             else:
                 totals = {}
-                for row in year.fee_value_ids:
+                for row in rows:
                     totals[row.grade_level_id.id] = totals.get(row.grade_level_id.id, 0) + row.amount
                 year.annual_fee_input = sum(totals.values()) / len(totals) if totals else 0
 
@@ -105,20 +146,33 @@ class AcademicYears(models.Model):
             amount = year.annual_fee_input
             if amount < 0:
                 raise ValidationError('Annual Fee / Student cannot be negative.')
-            for enrollment in year.enrollment_ids:
-                rows = year.fee_value_ids.filtered(lambda row: row.grade_level_id == enrollment.grade_level_id)
+            levels = year._tuition_scope_grades() if year.dataset_type == 'forecast' else year.enrollment_ids.grade_level_id
+            for level in levels:
+                rows = year.fee_value_ids.filtered(lambda row: row.grade_level_id == level)
                 if year.dataset_type == 'actual':
                     rows = rows.filtered(lambda row: row.actual_applicability == 'all')
+                elif year.dataset_type == 'forecast':
+                    rows = rows.filtered('fee_type_id.forecast_tuition')
                 if not rows:
-                    fee_type = self.env['school.fee.types'].search([('school_id', '=', year.school_id.id)], order='display_order, id', limit=1)
+                    domain = [('school_id', '=', year.school_id.id)]
+                    if year.dataset_type == 'forecast':
+                        domain.append(('forecast_tuition', '=', True))
+                    fee_type = self.env['school.fee.types'].search(domain, order='display_order, id', limit=1)
                     if not fee_type:
-                        fee_type = self.env['school.fee.types'].create({'school_id': year.school_id.id, 'name': 'Tuition Fee', 'display_order': 10})
-                    rows = self.env['school.fee.values'].create([{'academic_year_id': year.id, 'grade_level_id': enrollment.grade_level_id.id, 'fee_type_id': fee_type.id, 'amount': 0}])
+                        fee_type = self.env['school.fee.types'].create({'school_id': year.school_id.id, 'name': 'Tuition Fee', 'display_order': 10, 'forecast_tuition': year.dataset_type == 'forecast'})
+                    rows = self.env['school.fee.values'].create([{'academic_year_id': year.id, 'grade_level_id': level.id, 'fee_type_id': fee_type.id, 'amount': 0}])
                 previous_total = sum(rows.mapped('amount'))
                 for row in rows:
                     share = row.amount / previous_total if previous_total else 1 / len(rows)
                     row.with_context(defer_school_financial_refresh=True).amount = amount * share
-            self.env['school.financial.report']._refresh_for_academic_years(year.ids)
+            related_years = year
+            if year.dataset_type == 'forecast' and year.forecast_fee_growth_batch:
+                related_years |= self.env['school.academic.years'].search([
+                    ('school_id', '=', year.school_id.id),
+                    ('dataset_type', '=', 'forecast'),
+                    ('forecast_fee_growth_batch', '=', year.forecast_fee_growth_batch),
+                ])
+            self.env['school.financial.report']._refresh_for_academic_years(related_years.ids)
 
     def _payroll_revenue_base(self):
         self.ensure_one()
@@ -213,14 +267,15 @@ class AcademicYears(models.Model):
             amount = year.annual_fee_input
             if amount < 0:
                 raise ValidationError('Annual Fee / Student cannot be negative.')
-            students = sum(year.enrollment_ids.mapped('student_count'))
-            totals = [sum(year.fee_value_ids.filtered(lambda row: row.grade_level_id == grade).mapped('amount')) for grade in year.fee_value_ids.mapped('grade_level_id')]
-            current = sum(year.fee_value_ids.mapped('gross_revenue_amount')) / students if students else (sum(totals) / len(totals) if totals else 0)
+            students = sum(year._tuition_scope_enrollments().mapped('student_count'))
+            tuition_rows = year._forecast_tuition_rows()
+            totals = [sum(tuition_rows.filtered(lambda row: row.grade_level_id == grade).mapped('amount')) for grade in tuition_rows.mapped('grade_level_id')]
+            current = sum(tuition_rows.mapped('gross_revenue_amount')) / students if students else (sum(totals) / len(totals) if totals else 0)
             if abs(current - amount) < 0.000001:
                 continue
             changed = False
-            for grade in year.fee_value_ids.mapped('grade_level_id'):
-                rows = year.fee_value_ids.filtered(lambda row: row.grade_level_id == grade)
+            for grade in tuition_rows.mapped('grade_level_id'):
+                rows = tuition_rows.filtered(lambda row: row.grade_level_id == grade)
                 previous = sum(rows.mapped('amount'))
                 if abs(previous - amount) < 0.000001:
                     continue
@@ -267,11 +322,29 @@ class AcademicYears(models.Model):
                 if actual.school_id != year.school_id or actual.start_date != year.start_date or actual.end_date != year.end_date or actual.academic_year_name != year.academic_year_name or year.dataset_type != 'forecast':
                     raise ValidationError('A linked Forecast reporting year cannot be changed independently of its Actual year.')
 
-    @api.depends('school_id', 'start_date', 'end_date', 'baseline_locked', 'baseline_totals',
-                 'enrollment_ids.student_count', 'fee_value_ids.revenue_amount', 'expense_value_ids.amount',
+    @api.depends('school_id', 'school_id.currency_id', 'start_date', 'end_date', 'baseline_locked', 'baseline_totals',
+                 'enrollment_ids.student_count', 'enrollment_ids.grade_level_id', 'enrollment_ids.grade_level_id.name',
+                 'fee_value_ids.revenue_amount', 'fee_value_ids.tax_amount', 'expense_value_ids.amount',
                  'expense_value_ids.cost_bucket', 'expense_value_ids.expense_category_id', 'expense_value_ids.expense_item_id',
                  'employment_salary_ids.annual_cost',
                  'room_plan_ids.new_rooms_asset_cost', 'asset_price_ids.startup_cost', 'infrastructure_seeded', 'infrastructure_mode',
+                 'expense_calculation_mode', 'detailed_expenses_created', 'detailed_expense_seed_ids',
+                 'detailed_expense_seed_ids.price', 'detailed_expense_seed_ids.price_set',
+                 'detailed_expense_seed_ids.currency_id', 'detailed_expense_seed_ids.basis',
+                 'detailed_expense_seed_ids.quantity', 'detailed_expense_seed_ids.quantity_set',
+                 'detailed_expense_seed_ids.grade_ids.name',
+                 'detailed_expense_seed_ids.grade_scope', 'detailed_expense_seed_ids.grade_ids',
+                 'detailed_expense_seed_ids.student_paid', 'detailed_expense_seed_ids.price_type',
+                 'detailed_incomes_created', 'detailed_income_seed_ids',
+                 'detailed_income_seed_ids.name', 'detailed_income_seed_ids.price',
+                 'detailed_income_seed_ids.price_set', 'detailed_income_seed_ids.currency_id',
+                 'detailed_income_seed_ids.basis', 'detailed_income_seed_ids.quantity',
+                 'detailed_income_seed_ids.quantity_set', 'detailed_income_seed_ids.grade_scope',
+                 'detailed_income_seed_ids.grade_ids', 'detailed_income_seed_ids.grade_ids.name', 'detailed_income_seed_ids.student_paid',
+                 'detailed_income_seed_ids.price_type', 'detailed_income_seed_ids.replaces_tuition',
+                 'fee_value_ids.fee_type_id.forecast_tuition',
+                 'baseline_income_sources',
+                 'detailed_allocated_prices', 'detailed_occurrence_values', 'fee_value_ids.gross_revenue_amount',
                  'payroll_summary_enabled', 'payroll_basis', 'payroll_revenue_basis', 'payroll_rate', 'payroll_fixed_amount')
     def _compute_financial_summary(self):
         super()._compute_financial_summary()
@@ -291,7 +364,7 @@ class AcademicYears(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if any(values.get('baseline_locked') or values.get('baseline_totals') for values in vals_list):
+        if any(values.get('baseline_locked') or values.get('baseline_totals') or values.get('baseline_income_sources') or values.get('legacy_detailed_tax') for values in vals_list):
             raise ValidationError('Approve the forecast using Freeze Baseline.')
         prepared = []
         for values in vals_list:
@@ -315,7 +388,7 @@ class AcademicYears(models.Model):
             raise ValidationError('This approved forecast is frozen. Its inputs and reporting period cannot be changed.')
         if 'dataset_type' in values and any(year.dataset_type != 'legacy' and year.dataset_type != values['dataset_type'] for year in self):
             raise ValidationError('Keep Forecast and Actual separate. Only unclassified historical years can change dataset.')
-        if 'baseline_locked' in values or 'baseline_totals' in values:
+        if 'baseline_locked' in values or 'baseline_totals' in values or 'baseline_income_sources' in values or 'legacy_detailed_tax' in values:
             raise ValidationError('Approve the forecast using Freeze Baseline.')
         result = super().write(values)
         if {'forecast_year_id', 'dataset_type'} & values.keys():
@@ -339,9 +412,12 @@ class AcademicYears(models.Model):
                 raise ValidationError('Only a Forecast can be approved.')
             if year.baseline_locked:
                 continue
+            sources, pending = year._forecast_income_sources()
+            if pending:
+                raise ValidationError(self.env._('Complete the selected detailed income items before freezing the forecast.'))
             self.env['school.financial.report']._refresh_for_academic_years(year.ids)
             totals = {name: year[name] for name, field in year._fields.items() if field.compute == '_compute_financial_summary'}
-            super(AcademicYears, year).write({'baseline_totals': totals, 'baseline_locked': True})
+            super(AcademicYears, year).write({'baseline_totals': totals, 'baseline_income_sources': sources, 'baseline_locked': True})
         return self._workspace_action()
 
     def _workspace_action(self):
@@ -379,13 +455,22 @@ class AcademicYears(models.Model):
             self.env['school.grade.enrollment'].with_context(**context).create([
                 {'academic_year_id': year.id, 'grade_level_id': grade.id, 'student_count': 0} for grade in missing_grades
             ])
-            for seed in self.env.ref('school_planning.prediction_seed_configuration').fee_ids:
-                fee_type = self.env['school.fee.types'].search([('school_id', '=', year.school_id.id), ('name', '=ilike', seed.name)], limit=1)
+            seeds = self.env.ref('school_planning.prediction_seed_configuration').income_detail_seed_ids.filtered('active')
+            for index, seed in enumerate(seeds, 1):
+                domain = [('school_id', '=', year.school_id.id)]
+                if seed.replaces_tuition:
+                    domain.append(('forecast_tuition', '=', True))
+                elif seed.name.casefold() in ('activity fees', 'transportation fees'):
+                    domain += ['|', ('name', '=ilike', seed.name), ('name', '=ilike', seed.name[:-1])]
+                else:
+                    domain.append(('name', '=ilike', seed.name))
+                fee_type = self.env['school.fee.types'].search(domain, limit=1)
                 if not fee_type:
-                    self.env['school.fee.types'].create({'school_id': year.school_id.id, 'name': seed.name, 'display_order': seed.display_order,
-                                                        'is_optional': seed.is_optional})
-                elif seed.is_optional and not fee_type.is_optional:
-                    fee_type.is_optional = True
+                    self.env['school.fee.types'].create({
+                        'school_id': year.school_id.id, 'name': seed.name, 'display_order': index * 10,
+                        'is_optional': seed.basis == 'student_percent' or seed.name == 'Transportation Fees',
+                        'forecast_tuition': seed.replaces_tuition,
+                    })
             fee_types = self.env['school.fee.types'].search([('school_id', '=', year.school_id.id)], order='display_order, id')
             existing_fees = {(row.grade_level_id.id, row.fee_type_id.id) for row in year.fee_value_ids}
             self.env['school.fee.values'].with_context(**context).create([
@@ -407,20 +492,26 @@ class AcademicYears(models.Model):
             ])
             subjects = self.env['school.subjects'].search([('school_id', '=', year.school_id.id)])
             existing_load = {(row.grade_level_id.id, row.subject_id.id) for row in year.subject_distribution_ids}
-            template_grades = grades
             load_values = []
-            if year.uses_american_timetable:
-                from .american_curriculum import american_grade_index
-                template_grades = grades.filtered(lambda grade: american_grade_index(grade) is None)
-                choice_grades = year.subject_distribution_ids.filtered('choice_subject_ids').grade_level_id.ids
+            timetables = year.school_id._matching_timetables()
+            if timetables:
+                year.school_id._ensure_timetable_subjects()
+                subjects = year.school_id.subject_ids
                 load_values += [
                     {**values, 'weekly_hours': 0}
-                    for values in year.school_id._american_timetable_values(grades, subjects)
-                    if not values.get('choice_subject_ids') or values['grade_level_id'] not in choice_grades
+                    for values in year.school_id._timetable_values(grades, subjects)
                 ]
+            covered = {
+                (value['grade_level_id'], self.env['school.timetable'].browse(value['timetable_id']).curriculum_id.id)
+                for value in load_values
+            } | {(row.grade_level_id.id, row.timetable_id.curriculum_id.id)
+                 for row in year.subject_distribution_ids if row.timetable_id}
+            covered_grades = {grade_id for grade_id, _curriculum_id in covered}
             load_values += [
                 {'grade_level_id': grade.id, 'subject_id': subject.id, 'weekly_hours': 0, 'credits': 0}
-                for grade in template_grades for subject in subjects
+                for grade in grades for subject in subjects
+                if (grade.id, subject.preset_id.curriculum_id.id) not in covered
+                and (grade.id not in covered_grades or subject.preset_id.curriculum_id in year.school_id.curriculum_ids)
             ]
             self.env['school.subject.distribution'].with_context(**context).create([
                 {**values, 'academic_year_id': year.id}
@@ -704,7 +795,7 @@ class YearInputGuard(models.AbstractModel):
 
     def _refresh_year_reports(self, years):
         if self._name in ('school.subject.distribution', 'school.grade.enrollment'):
-            for year in years.filtered(lambda year: year.uses_american_timetable and year.dataset_type == 'forecast'):
+            for year in years.filtered(lambda year: year.uses_timetables and year.dataset_type == 'forecast'):
                 year._sync_efficiency_teaching()
         self.env['school.financial.report']._refresh_for_academic_years(years.ids)
 
@@ -728,7 +819,7 @@ class YearInputGuard(models.AbstractModel):
                   'school.expansion.projects': {'name', 'description', 'start_date', 'end_date', 'project_room_ids'},
                   'school.expansion.project.rooms': {'expansion_project_id', 'room_type_id', 'room_count'},
                   'school.staffing.overrides': {'staff_position_id', 'employee_count'},
-                  'school.subject.distribution': {'grade_level_id', 'subject_id', 'weekly_hours', 'credits', 'choice_subject_ids'}}
+                  'school.subject.distribution': {'grade_level_id', 'subject_id', 'weekly_hours', 'credits', 'elective_group'}}
         if changed_fields is not None and not inputs.get(self._name, set()).intersection(changed_fields):
             return
         sections = {'school.grade.enrollment': 'enrollment', 'school.fee.values': 'income',
@@ -838,7 +929,60 @@ class Fees(models.Model):
     def write(self, values):
         if 'actual_tax_rule_ids' in values:
             values = {**values, 'actual_tax_percent': 0}
-        return super().write(values)
+        propagate = (
+            'amount' in values and not self.env.context.get('skip_forecast_fee_growth')
+            and not {'academic_year_id', 'grade_level_id', 'fee_type_id'}.intersection(values)
+        )
+        sources = self.filtered(
+            lambda row: row.dataset_type == 'forecast' and row.fee_type_id.forecast_tuition
+            and row.academic_year_id.forecast_fee_growth_batch and row.amount != values.get('amount')
+        ) if propagate else self.browse()
+        if any(not row.academic_year_id.start_date for row in sources):
+            raise ValidationError(self.env._('Cannot update future tuition because the forecast year has no start date.'))
+        result = super().write(values)
+        if sources:
+            explicit = set(self.ids)
+            affected_years = self.env['school.academic.years']
+            for source in sources.sorted(key=lambda row: (row.academic_year_id.start_date, row.id)):
+                year = source.academic_year_id
+                later = self.env['school.academic.years'].search([
+                    ('school_id', '=', year.school_id.id),
+                    ('dataset_type', '=', 'forecast'),
+                    ('forecast_fee_growth_batch', '=', year.forecast_fee_growth_batch),
+                    ('academic_year_name', '>', year.academic_year_name),
+                ], order='academic_year_name, id')
+                amount = source.amount
+                previous = year.start_date.year
+                for next_year in later:
+                    if not next_year.start_date or next_year.start_date.year != previous + 1:
+                        raise ValidationError(self.env._(
+                            'Cannot update future tuition because the generated forecast years are incomplete or have invalid dates.'
+                        ))
+                    rows = next_year.fee_value_ids.filtered(
+                        lambda row: row.grade_level_id == source.grade_level_id and row.fee_type_id == source.fee_type_id
+                    )
+                    if not rows:
+                        raise ValidationError(self.env._(
+                            'Cannot update tuition because the matching grade and fee are missing in %(year)s.',
+                            year=next_year.academic_year_name,
+                        ))
+                    if len(rows) != 1:
+                        raise ValidationError(self.env._('Cannot update tuition: multiple matching fee rows exist in %(year)s.', year=next_year.academic_year_name))
+                    row = rows.ensure_one()
+                    if row.id in explicit:
+                        break
+                    amount *= 1 + next_year.forecast_fee_growth_percent / 100
+                    if row.amount != amount:
+                        if next_year.baseline_locked:
+                            raise ValidationError(self.env._(
+                                'Cannot update tuition because %(year)s is an approved forecast. No fees were changed.',
+                                year=next_year.academic_year_name,
+                            ))
+                        row.with_context(skip_forecast_fee_growth=True, defer_school_financial_refresh=True).write({'amount': amount})
+                        affected_years |= next_year
+                    previous = next_year.start_date.year
+            self.env['school.financial.report']._refresh_for_academic_years(affected_years.ids)
+        return result
 
     @api.constrains('academic_year_id', 'actual_selected_students', 'actual_applicability', 'actual_tax_rule_ids', 'actual_tax_percent')
     def _check_actual_fee_inputs(self):
@@ -1080,6 +1224,7 @@ class ForecastComparison(models.TransientModel):
     forecast_year_id = fields.Many2one('school.academic.years', string='Academic Year')
     actual_year_id = fields.Many2one('school.academic.years', compute='_compute_actual_year')
     baseline_locked = fields.Boolean(related='forecast_year_id.baseline_locked')
+    detailed_income_pending = fields.Integer(related='forecast_year_id.detailed_income_pending')
     actual_status = fields.Selection(related='actual_year_id.actual_status')
     currency_id = fields.Many2one(related='school_id.currency_id')
     line_ids = fields.One2many('school.forecast.comparison.line', 'wizard_id')

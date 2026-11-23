@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="school_planning.DismissibleNotice">
+        <div t-if="!state.dismissed" t-att-class="noticeClass + ' d-flex align-items-start justify-content-between gap-3'"
+             t-att-role="props.variant === 'danger' ? 'alert' : 'status'">
+            <span>
+                <strong t-if="props.title" t-esc="props.title"/><t t-if="props.title"> </t>
+                <t t-if="props.message" t-esc="props.message"/><t t-else="" t-slot="default"/>
+            </span>
+            <button type="button" class="btn-close flex-shrink-0" aria-label="Close notice" t-on-click="() => state.dismissed = true"/>
+        </div>
+    </t>
+</templates>

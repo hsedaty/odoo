@@ -48,6 +48,15 @@ defineModels([School]);
 defineMailModels();
 preloadBundle("web.chartjs_lib");
 
+test.timeout(15000);
+test("dismissing a dashboard error keeps retry available", async () => {
+    const dashboard = await mountWithCleanup(SchoolDashboard, { props: { action: {} } });
+    dashboard.state.error = "Temporary error";
+    await contains(".alert-danger .btn-close").click();
+    expect(".alert-danger").toHaveCount(0);
+    expect("button:contains(Try again)").toHaveCount(1);
+});
+
 test("combined school and branch figures are shown as separate bars", async () => {
     onRpc("school.schools", "get_dashboard", () => ({
         ...School.prototype.get_dashboard(),

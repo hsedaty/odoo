@@ -139,6 +139,7 @@
                     <field name="group_preset_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit': True}"/>
                     <field name="level_preset_ids" widget="many2many_tags" domain="[('group_preset_id', 'in', group_preset_ids)]" options="{'no_create': True, 'no_create_edit': True}"/>
                 </group>
+                <p class="text-muted">This adds selected grades; it does not remove existing grades.</p>
                 <footer>
                     <button name="action_apply" type="object" string="Add Selected Grades" class="btn-primary"/>
                     <button string="Cancel" special="cancel" class="btn-secondary"/>
@@ -341,7 +342,7 @@
     <record id="view_school_subjects_tree" model="ir.ui.view"><field name="name">school.subjects.tree</field><field name="model">school.subjects</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/></list></field></record>
     <record id="view_school_tax_rules_tree" model="ir.ui.view"><field name="name">school.tax.rules.tree</field><field name="model">school.tax.rules</field><field name="arch" type="xml"><list editable="bottom"><field name="school_id" column_invisible="context.get('default_school_id', False)"/><field name="name"/><field name="percentage" widget="percentage"/></list></field></record>
     <record id="view_school_tax_rules_form" model="ir.ui.view"><field name="name">school.tax.rules.form</field><field name="model">school.tax.rules</field><field name="arch" type="xml"><form string="Tax Type"><sheet><group><field name="school_id" readonly="context.get('default_school_id', False)"/><field name="name"/><field name="percentage" widget="percentage"/></group></sheet></form></field></record>
-    <record id="view_school_fee_types_tree" model="ir.ui.view"><field name="name">school.fee.types.tree</field><field name="model">school.fee.types</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="is_optional"/><field name="is_taxable" widget="boolean_toggle"/><field name="tax_rule_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}" options="{'no_create': True, 'no_create_edit': True}"/></list></field></record>
+    <record id="view_school_fee_types_tree" model="ir.ui.view"><field name="name">school.fee.types.tree</field><field name="model">school.fee.types</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id"/><field name="name"/><field name="forecast_tuition"/><field name="is_optional"/><field name="is_taxable" widget="boolean_toggle"/><field name="tax_rule_id" domain="[('school_id', '=', school_id)]" context="{'default_school_id': school_id}" options="{'no_create': True, 'no_create_edit': True}"/></list></field></record>
     <record id="view_school_expense_categories_tree" model="ir.ui.view"><field name="name">school.expense.categories.tree</field><field name="model">school.expense.categories</field><field name="arch" type="xml"><list editable="bottom"><field name="display_order" widget="handle"/><field name="school_id" column_invisible="context.get('default_school_id', False)"/><field name="name"/><button name="action_open_expense_category" type="object" icon="fa-pencil-square-o" title="Edit Category &amp; Items"/><button name="action_delete_expense_category" type="object" icon="fa-trash" title="Delete Category &amp; Items" confirm="Delete this expense category, all its expense items, and their recorded expenses in every academic year? This cannot be undone. Categories used in frozen baselines cannot be deleted."/></list></field></record>
     <record id="view_school_expense_categories_form" model="ir.ui.view">
         <field name="name">school.expense.categories.form</field><field name="model">school.expense.categories</field>
@@ -647,7 +648,7 @@
     </record>
 
     <!-- Other Year Data Lists -->
-    <record id="view_school_subject_distribution_tree" model="ir.ui.view"><field name="name">school.subject.distribution.tree</field><field name="model">school.subject.distribution</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="choice_subject_ids" column_invisible="True"/><field name="choice_label" optional="show"/><field name="subject_id" domain="[('id', 'in', choice_subject_ids)] if choice_subject_ids else []"/><field name="weekly_hours" sum="Total Hours"/><field name="credits"/><field name="total_teaching_hours" sum="Total Load" widget="badge"/></list></field></record>
+    <record id="view_school_subject_distribution_tree" model="ir.ui.view"><field name="name">school.subject.distribution.tree</field><field name="model">school.subject.distribution</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="curriculum_id" optional="show"/><field name="timetable_id" optional="hide"/><field name="subject_id"/><field name="elective_group"/><field name="weekly_hours"/><field name="class_weekly_hours" sum="Class Hours"/><field name="credits"/><field name="total_teaching_hours" sum="Total Load" widget="badge"/></list></field></record>
     <record id="view_school_fee_values_tree" model="ir.ui.view"><field name="name">school.fee.values.tree</field><field name="model">school.fee.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="grade_level_id"/><field name="fee_type_id"/><field name="amount" sum="Total Amount"/></list></field></record>
     <record id="view_school_expense_values_tree" model="ir.ui.view"><field name="name">school.expense.values.tree</field><field name="model">school.expense.values</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="expense_category_id"/><field name="expense_item_id" domain="[('expense_category_id', '=', expense_category_id)]"/><field name="cost_bucket" optional="hide"/><field name="amount"/></list></field></record>
     <record id="view_school_employment_salaries_tree" model="ir.ui.view"><field name="name">school.employment.salaries.tree</field><field name="model">school.employment.salaries</field><field name="arch" type="xml"><list editable="bottom"><field name="academic_year_id"/><field name="staff_position_id"/><field name="employee_count" sum="Total Employees"/><field name="monthly_salary"/><field name="months_paid"/><field name="bonus"/></list></field></record>
@@ -894,6 +895,8 @@
                             <div class="text-muted small mb-1">Gross Income</div>
                             <div class="fs-4 fw-bold text-success"><field name="fee_gross_total" readonly="1"/></div>
                         </div>
+                        <field name="detailed_income_pending" invisible="1"/>
+                        <widget name="school_dismissible_notice" variant="warning" string="Forecast totals are incomplete: selected Detailed Income items need pricing." invisible="dataset_type != 'forecast' or not detailed_income_pending"/>
                         <div class="col-12 col-sm-6 col-lg-3">
                             <div class="text-muted small mb-1">Tax + Operating Outflow</div>
                             <div class="fs-4 fw-bold"><field name="total_deductions" readonly="1"/></div>
@@ -937,27 +940,36 @@
                     </group>
                     <notebook>
                         <page string="Income Details" name="income_details">
+                            <field name="tuition_gross_total" invisible="1"/>
                             <widget name="school_detailed_incomes" invisible="dataset_type != 'forecast'"/>
+                            <p class="text-muted" invisible="dataset_type != 'forecast'">Fee rows not marked Included in Forecast are retained for reference and excluded from forecast totals.</p>
                             <field name="fee_value_ids" nolabel="1" readonly="1">
                                 <list create="false" edit="false" delete="false" limit="200">
                                     <field name="grade_level_id"/>
                                     <field name="fee_type_id"/>
+                                    <field name="included_in_forecast" column_invisible="parent.dataset_type != 'forecast'"/>
                                     <field name="enrolled_students" string="Students"/>
                                     <field name="amount" string="Fee / Student"/>
-                                    <field name="gross_revenue_amount" string="Gross" sum="Gross Income"/>
-                                    <field name="tax_amount" string="Tax" sum="Tax"/>
-                                    <field name="revenue_amount" string="Net Income" sum="Income After Tax"/>
+                                    <field name="gross_revenue_amount" string="Gross"/>
+                                    <field name="tax_amount" string="Tax"/>
+                                    <field name="revenue_amount" string="Net Income"/>
                                 </list>
                             </field>
                         </page>
                         <page string="Expense Details" name="expense_details">
                             <field name="dataset_type" invisible="1"/>
                             <field name="baseline_locked" invisible="1"/>
+                            <group invisible="dataset_type != 'forecast'">
+                                <field name="expense_calculation_mode" readonly="baseline_locked"/>
+                                <field name="legacy_detailed_tax" invisible="1"/>
+                                <div class="text-muted" invisible="not legacy_detailed_tax">This previously approved forecast retains its original tax calculation.</div>
+                            </group>
                             <group string="Tax Deduction">
-                                <field name="prediction_income_tax_percent" string="Tax Deduction %" invisible="dataset_type != 'forecast'" readonly="baseline_locked"/>
+                                <field name="detailed_expenses_created" invisible="1"/>
+                                <field name="prediction_income_tax_percent" string="Tax Deduction %" invisible="dataset_type != 'forecast' or expense_calculation_mode == 'detailed'" readonly="baseline_locked"/>
                                 <field name="tax_pct" string="Effective Tax %" invisible="dataset_type == 'forecast'" readonly="1"/>
                                 <field name="tax_deductions_total" string="Tax Deduction Amount" readonly="1"/>
-                                <div class="text-muted">Already deducted from gross income; not added to operating expenses again.</div>
+                                <div class="text-muted" invisible="dataset_type != 'forecast' or expense_calculation_mode != 'detailed'">General tax is not applied; include taxes in Official Payments.</div>
                                 <button name="action_open_actual_tax_types" type="object" string="Manage Tax Types" icon="fa-percent" invisible="dataset_type != 'actual'"/>
                             </group>
                             <widget name="school_detailed_expenses" invisible="dataset_type != 'forecast'"/>

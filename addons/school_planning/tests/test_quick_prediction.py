@@ -44,6 +44,198 @@ class TestQuickPrediction(TransactionCase):
             'school_id': self.school.id, 'extreme_efficiency': extreme,
         })
 
+    def test_original_forecast_settings_are_saved_and_replaced_only_by_generation(self):
+        wizard = self._wizard()
+        wizard.write({'income_tax_percent': 17, 'fee_increase_percent': 7})
+        wizard.line_ids.write({'student_count': 123, 'annual_fee_per_student': 456})
+        wizard.repeating_expense_line_ids[0].write({'name': '<Books>', 'base_annual_amount': 22})
+        wizard.year_salary_line_ids[0].teacher_monthly_salary = 987
+        wizard.action_apply()
+        years = wizard._existing_forecast_years()
+        first = years[0]
+        original = first.original_forecast_settings
+        display = first.original_forecast_settings_display
+        self.assertIn('123', display)
+        self.assertIn('456', display)
+        self.assertIn('17', display)
+        self.assertIn('987', display)
+        self.assertIn('&lt;Books&gt;', display)
+        self.assertNotIn('<Books>', display)
+        self.assertIn('Generated enrollment', display)
+        self.assertEqual(first.action_show_original_forecast_settings()['res_id'], first.id)
+        first.enrollment_ids[0].student_count += 5
+        wizard.line_ids.write({'student_count': 200, 'annual_fee_per_student': 500})
+        self.assertEqual(first.original_forecast_settings, original)
+        wizard.action_apply()
+        self.assertNotEqual(first.original_forecast_settings, original)
+        self.assertIn('200', first.original_forecast_settings_display)
+        first.action_freeze_baseline()
+        self.assertIn('200', first.original_forecast_settings_display)
+        self.assertFalse(first.copy({'academic_year_name': '2090-2091'}).original_forecast_settings)
+
+    def test_original_forecast_settings_handle_old_and_extreme_forecasts(self):
+        old = self.env['school.academic.years'].create({
+            'school_id': self.school.id, 'academic_year_name': '2090-2091',
+            'start_date': '2090-09-01', 'end_date': '2091-06-30', 'dataset_type': 'forecast',
+        })
+        self.assertIn('not saved', old.original_forecast_settings_display)
+        wizard = self._wizard(extreme=True)
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 900})
+        wizard.payroll_rule_ids[0].base_annual_amount = 42
+        wizard.action_apply()
+        display = wizard._existing_forecast_years()[0].original_forecast_settings_display
+        self.assertIn('Extreme Efficiency', display)
+        self.assertIn('42', display)
+        self.assertNotIn('Salaries:', display)
+
+    def test_prediction_places_annual_fee_in_tuition_only(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 900})
+        wizard.action_apply()
+        for year in wizard._existing_forecast_years():
+            self.assertEqual(set(year.fee_value_ids.fee_type_id.mapped('name')), {'Tuition Fees'})
+            self.assertEqual(set(year.fee_value_ids.mapped('amount')), {900})
+            self.assertEqual(year.fee_gross_total, 90000)
+
+    def test_tuition_changes_compound_by_grade_and_refresh_reports(self):
+        wizard = self._wizard()
+        wizard.fee_increase_percent = 10
+        for line, amount in zip(wizard.line_ids.sorted('year_index'), (100, 150, 200)):
+            line.write({'student_count': 100, 'annual_fee_per_student': amount})
+        wizard.action_apply()
+        years = wizard._existing_forecast_years()
+        grade, other_grade = years[0].enrollment_ids.grade_level_id[:2]
+
+        def tuition(year, level):
+            return year.fee_value_ids.filtered(
+                lambda row: row.grade_level_id == level and row.fee_type_id.forecast_tuition
+            ).ensure_one()
+
+        rows = [tuition(year, grade) for year in years]
+        self.assertEqual([row.amount for row in rows], [100, 150, 200])
+        rows[0].amount = 200
+        self.assertAlmostEqual(rows[1].amount, 220)
+        self.assertAlmostEqual(rows[2].amount, 242)
+        self.assertEqual([tuition(year, other_grade).amount for year in years], [100, 150, 200])
+        report = self.env['school.financial.report'].search([('academic_year_id', '=', years[2].id)])
+        self.assertAlmostEqual(report.gross_revenue, years[2].fee_gross_total)
+        rows[1].amount = 300
+        self.assertEqual(rows[0].amount, 200)
+        self.assertAlmostEqual(rows[2].amount, 330)
+        years[0].annual_fee_input = 400
+        self.assertAlmostEqual(rows[1].amount, 440)
+        self.assertAlmostEqual(rows[2].amount, 484)
+        self.assertAlmostEqual(report.gross_revenue, years[2].fee_gross_total)
+
+        wizard.action_apply()
+        self.assertEqual([row.amount for row in rows], [100, 150, 200])
+        rows[1].amount = 250
+        (rows[0] | rows[1]).write({'amount': 250})
+        self.assertEqual(rows[1].amount, 250)
+        self.assertAlmostEqual(rows[2].amount, 275)
+        years[0].write({'fee_value_ids': [fields.Command.update(rows[0].id, {'amount': 300})]})
+        self.assertAlmostEqual(rows[1].amount, 330)
+        self.assertAlmostEqual(rows[2].amount, 363)
+        self.assertAlmostEqual(report.gross_revenue, years[2].fee_gross_total)
+
+    def test_tuition_growth_protects_approved_and_unlinked_years(self):
+        wizard = self._wizard()
+        wizard.fee_increase_percent = 10
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first, middle, last = wizard._existing_forecast_years()
+        grade = first.enrollment_ids[0].grade_level_id
+        rows = [(year.fee_value_ids.filtered(lambda fee: fee.grade_level_id == grade)).ensure_one()
+                for year in (first, middle, last)]
+        actual = first._ensure_actual_year()
+        actual.action_load_from_forecast()
+        actual_amounts = actual.fee_value_ids.mapped('amount')
+        last.action_freeze_baseline()
+        with self.assertRaisesRegex(ValidationError, 'approved forecast'), self.cr.savepoint():
+            rows[0].amount = 200
+        self.assertEqual([row.amount for row in rows], [100, 100, 100])
+        self.assertEqual(actual.fee_value_ids.mapped('amount'), actual_amounts)
+
+        first.write({'forecast_fee_growth_batch': False})
+        rows[0].amount = 200
+        self.assertEqual([row.amount for row in rows], [200, 100, 100])
+        other_type = self.env['school.fee.types'].create({
+            'school_id': self.school.id, 'name': 'Other fee', 'display_order': 20, 'forecast_tuition': False,
+        })
+        other_rows = self.env['school.fee.values'].create([
+            {'academic_year_id': year.id, 'grade_level_id': grade.id, 'fee_type_id': other_type.id, 'amount': 20}
+            for year in (first, middle)
+        ])
+        first.write({'forecast_fee_growth_batch': middle.forecast_fee_growth_batch})
+        other_rows[0].amount = 50
+        self.assertEqual(other_rows[1].amount, 20)
+
+    def test_tuition_growth_migration_recovers_saved_settings(self):
+        wizard = self._wizard()
+        wizard.fee_increase_percent = 12
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        years = wizard._existing_forecast_years()
+        years.write({'forecast_fee_growth_batch': False, 'forecast_fee_growth_percent': 0})
+        migrate = run_path(str(Path(__file__).parents[1] / 'migrations/19.0.1.71.0/post-migrate.py'))['migrate']
+        self.env.flush_all()
+        migrate(self.cr, '19.0.1.70.0')
+        years.invalidate_recordset(['forecast_fee_growth_batch', 'forecast_fee_growth_percent'])
+        self.assertEqual(len(set(years.mapped('forecast_fee_growth_batch'))), 1)
+        self.assertTrue(years[0].forecast_fee_growth_batch)
+        self.assertEqual(years.mapped('forecast_fee_growth_percent'), [12, 12, 12])
+        first = years[0].fee_value_ids[0]
+        next_fee = years[1].fee_value_ids.filtered(lambda row: row.grade_level_id == first.grade_level_id)
+        first.amount = 200
+        self.assertAlmostEqual(next_fee.amount, 224)
+
+    def test_regeneration_uses_detailed_income_for_expense_estimates(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        year = wizard._existing_forecast_years()[0]
+        income = self.configuration.operational_seed_ids.filtered(
+            lambda seed: seed.name == 'Club Fees' and seed.category_seed_id.catalog_type == 'income'
+        ).ensure_one()
+        year.create_detailed_income_list()
+        year.set_detailed_income_selection(income.id, True)
+        year.set_detailed_occurrence_value('income', income.id, 'amount', 400)
+        self.assertEqual(year.fee_gross_total, 10400)
+        self.assertEqual(year.expense_total, 3120)
+        wizard.action_apply()
+        self.assertEqual(year.fee_gross_total, 10400)
+        self.assertEqual(year.expense_total, 3120)
+
+    def test_grade_setup_selection_survives_quick_prediction(self):
+        primary = self.env.ref('school_planning.grade_group_preset_primary')
+        first = self.env.ref('school_planning.grade_level_preset_grade_1')
+        third = self.env.ref('school_planning.grade_level_preset_grade_3')
+        self.env['school.grade.setup.wizard'].create({
+            'school_id': self.school.id,
+            'group_preset_ids': [fields.Command.set(primary.ids)],
+            'level_preset_ids': [fields.Command.set((first | third).ids)],
+        }).action_apply()
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        grades = self.env['school.grade.levels'].search([('school_id', '=', self.school.id)])
+        self.assertEqual(set(grades.mapped('name')), {'Grade 1', 'Grade 3'})
+        for year in wizard._existing_forecast_years():
+            self.assertEqual(set(year.enrollment_ids.grade_level_id.mapped('name')), {'Grade 1', 'Grade 3'})
+            self.assertEqual(set(year.subject_distribution_ids.grade_level_id.mapped('name')), {'Grade 1', 'Grade 3'})
+        defaults = self.env['school.grade.setup.wizard'].with_context(
+            default_school_id=self.school.id,
+        ).default_get(['school_id', 'group_preset_ids', 'level_preset_ids'])
+        self.assertEqual(set(defaults['group_preset_ids'][0][2]), set(primary.ids))
+        self.assertEqual(set(defaults['level_preset_ids'][0][2]), set((first | third).ids))
+
+        other = self.env['school.schools'].create({'name': 'Unconfigured school', 'currency': 'EGP'})
+        with Form(self.env['school.grade.setup.wizard']) as form:
+            form.school_id = self.school
+            self.assertEqual(set(form.level_preset_ids.ids), set((first | third).ids))
+            form.school_id = other
+            self.assertEqual(len(form.level_preset_ids), self.env['school.grade.level.preset'].search_count([]))
+
     def test_price_currency_picker_actions(self):
         currency = self.env['res.currency'].create({'name': 'XTS', 'symbol': 'T'})
         planner = new_test_user(self.env, login='currency_picker_planner', groups='base.group_user')
@@ -121,6 +313,87 @@ class TestQuickPrediction(TransactionCase):
         self.assertEqual(self._wizard().repeating_expense_line_ids.seed_id,
                          self.configuration.expense_ids.filtered(lambda row: not row.is_detailed_category))
 
+    def test_deleted_fee_seeds_stay_deleted_after_update(self):
+        xmlids = [
+            f'school_planning.prediction_seed_{name}_fee'
+            for name in ('tuition', 'activity', 'admission')
+        ]
+        seeds = [self.env.ref(xmlid) for xmlid in xmlids]
+        seeds[0].name = 'Custom Tuition'
+        for seed in seeds[1:]:
+            seed.unlink()
+        convert_file(self.env, 'school_planning', 'data/prediction_seed_configuration.xml', {}, mode='update')
+        self.assertEqual(seeds[0].name, 'Custom Tuition')
+        for xmlid in xmlids[1:]:
+            self.assertFalse(self.env.ref(xmlid, raise_if_not_found=False))
+        seeds[0].unlink()
+        convert_file(self.env, 'school_planning', 'data/prediction_seed_configuration.xml', {}, mode='update')
+        self.assertFalse(self.configuration.fee_ids)
+        self.assertFalse(self.env.ref(xmlids[0], raise_if_not_found=False))
+
+    def test_prediction_uses_detailed_income_tuition_seed(self):
+        self.configuration.fee_ids.unlink()
+        tuition = self.configuration.income_detail_seed_ids.filtered('replaces_tuition')
+        tuition.name = 'Renamed Tuition'
+        self.env['school.fee.types'].create({
+            'school_id': self.school.id, 'name': 'Activity Fee', 'display_order': 30,
+        })
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 900})
+        wizard.action_apply()
+        for year in wizard._existing_forecast_years():
+            fees = year.fee_value_ids
+            self.assertEqual(set(fees.fee_type_id.mapped('name')), {'Renamed Tuition'})
+            self.assertAlmostEqual(year.fee_gross_total, 90000)
+            self.assertEqual(set(fees.mapped('amount')), {900})
+
+    def test_prediction_preserves_fees_no_longer_in_seeds(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first = wizard._existing_forecast_years()[0]
+        activity_type = self.env['school.fee.types'].create({
+            'school_id': self.school.id, 'name': 'Activity Fee', 'display_order': 20,
+        })
+        activity = self.env['school.fee.values'].create({
+            'academic_year_id': first.id, 'grade_level_id': first.enrollment_ids[0].grade_level_id.id,
+            'fee_type_id': activity_type.id, 'amount': 17,
+        })
+        before = activity.mapped('amount')
+        self.env.ref('school_planning.prediction_seed_activity_fee').unlink()
+        wizard.action_apply()
+        self.assertEqual(activity.exists().mapped('amount'), before)
+
+    def test_prediction_requires_a_tuition_income_seed(self):
+        self.configuration.income_detail_seed_ids.filtered('replaces_tuition').active = False
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        with self.assertRaisesRegex(ValidationError, 'Detailed Income Seeds'):
+            wizard.action_apply()
+        self.assertFalse(wizard._existing_forecast_years())
+
+    def test_prediction_ignores_legacy_fee_seeds(self):
+        self.configuration.fee_ids.unlink()
+        self.env['school.prediction.seed.fee'].create([
+            {'configuration_id': self.configuration.id, 'name': 'Custom fee', 'display_order': 10},
+            {'configuration_id': self.configuration.id, 'name': 'Optional fee', 'display_order': 20, 'is_optional': True},
+        ])
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        for year in wizard._existing_forecast_years():
+            self.assertEqual(set(year.fee_value_ids.fee_type_id.mapped('name')), {'Tuition Fees'})
+
+    def test_prediction_ignores_legacy_scenario_fee_shares(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        scenario = wizard._default_scenario()
+        for shares in [(-1, 0.1, 0.1), (1e308, 1e308, 1e308)]:
+            with self.subTest(shares=shares):
+                scenario.write(dict(zip(('tuition_share', 'admission_share', 'activity_share'), shares)))
+                wizard.action_apply()
+                self.assertEqual(wizard._existing_forecast_years()[0].fee_gross_total, 10000)
+
     def test_financial_summary_detailed_expenses_are_optional_and_year_specific(self):
         self.school.write({
             'currency_id': self.env.company.currency_id.id,
@@ -193,6 +466,9 @@ class TestQuickPrediction(TransactionCase):
         self.assertIn('detailed_expense_category_spend', [metric['key'] for metric in dashboard['breakdown_metrics']])
         breakdowns = dashboard['breakdowns']
         self.assertEqual(breakdowns['detailed_expense_category_spend'], [{'label': 'IT Support', 'value': 880}])
+        self.assertEqual(breakdowns['expense_category_spend'], [{'label': 'Manual Expenses', 'value': 3000}])
+        year.expense_calculation_mode = 'detailed'
+        breakdowns = self.school.get_dashboard(school_id=self.school.id, year_id=year.id)['breakdowns']
         self.assertEqual(breakdowns['expense_category_spend'], [{'label': 'IT Support', 'value': 880}])
         year.set_detailed_expense_selection(item.id, False)
         self.assertFalse(self.school._chart_breakdowns(year)['detailed_expense_category_spend'])
@@ -227,30 +503,33 @@ class TestQuickPrediction(TransactionCase):
         ])
         first.create_detailed_expense_list()
         self.assertEqual(self.school._chart_breakdowns(first)['expense_category_spend'], [
+            {'label': 'Manual Expenses', 'value': 3000},
             {'label': 'Other expenses', 'value': 100},
         ])
         first.set_detailed_expense_selection(digital.id, True)
         first.set_detailed_expense_selection(accreditation.id, True)
         first.set_detailed_expense_selection(missing.id, True)
+        with self.assertRaises(ValidationError), self.cr.savepoint():
+            first.expense_calculation_mode = 'detailed'
+        self.assertEqual(first.get_detailed_expense_list()['pending'], 1)
+        first.set_detailed_expense_selection(missing.id, False)
+        first.expense_calculation_mode = 'detailed'
         data = self.school.get_dashboard(school_id=self.school.id, year_id=first.id)
         self.assertTrue(data['expense_breakdown_uses_details'])
         self.assertEqual(data['breakdowns']['expense_category_spend'], [
             {'label': 'Accreditation Fees', 'value': 2500},
             {'label': 'Digital Resource Expenses', 'value': 500},
-            {'label': 'Other expenses', 'value': 100},
         ])
-        self.assertEqual(first.get_detailed_expense_list()['pending'], 1)
         self.assertEqual(self.school._chart_breakdowns(first | second)['expense_category_spend'], [
+            {'label': 'Manual Expenses', 'value': 2700},
             {'label': 'Accreditation Fees', 'value': 2500},
             {'label': 'Digital Resource Expenses', 'value': 500},
-            {'label': 'Other expenses', 'value': 100},
         ])
         first.set_detailed_expense_selection(digital.id, False)
         self.assertEqual(self.school._chart_breakdowns(first)['expense_category_spend'], [
             {'label': 'Accreditation Fees', 'value': 2500},
-            {'label': 'Other expenses', 'value': 100},
         ])
-        self.assertEqual(first.expense_total, 3100)
+        self.assertEqual(first.expense_total, 2500)
 
     def test_subject_setup_american_manual_selection(self):
         existing_subjects = self.school.subject_ids
@@ -491,6 +770,57 @@ class TestQuickPrediction(TransactionCase):
         actual.action_load_from_forecast()
         self.assertEqual(actual_direct.amount, 80)
 
+    def test_revenue_based_expenses_follow_current_revenue(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        year = wizard._existing_forecast_years()[0]
+        expense = year.operating_expense_ids.filtered(
+            lambda row: row.expense_category_id.name == 'Manual Expenses' and not row.expense_item_id
+        )
+        self.assertAlmostEqual(expense.amount, 3000)
+        year.annual_fee_input = 200
+        self.assertAlmostEqual(year.fee_gross_total, 20000)
+        self.assertAlmostEqual(expense.amount, 6000)
+        self.assertAlmostEqual(year.expense_total, 6000)
+        report = self.env['school.financial.report'].search([('academic_year_id', '=', year.id)])
+        self.assertAlmostEqual(report.expense_total, 6000)
+        year.annual_fee_input = 50
+        self.assertAlmostEqual(expense.amount, 1500)
+        year.annual_fee_input = 0
+        self.assertAlmostEqual(expense.amount, 0)
+        year.annual_fee_input = 100
+        self.assertAlmostEqual(expense.amount, 3000)
+        expense.amount = 1234
+        year.annual_fee_input = 100
+        self.assertAlmostEqual(expense.amount, 1234)
+
+    def test_revenue_based_expenses_keep_year_specific_rates(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first, second = wizard._existing_forecast_years()[:2]
+        self.assertAlmostEqual(first.operating_expense_ids.filtered(lambda row: not row.expense_item_id).amount, 3000)
+        expense = second.operating_expense_ids.filtered(lambda row: not row.expense_item_id)
+        self.assertAlmostEqual(expense.amount, 2700)
+        second.annual_fee_input = 200
+        self.assertAlmostEqual(expense.amount, 5400)
+
+    def test_existing_and_frozen_expenses_are_not_reinterpreted(self):
+        wizard = self._wizard()
+        wizard.line_ids.write({'student_count': 100, 'annual_fee_per_student': 100})
+        wizard.action_apply()
+        first, second = wizard._existing_forecast_years()[:2]
+        old_expense = first.operating_expense_ids.filtered(lambda row: not row.expense_item_id)
+        old_expense.write({'prediction_revenue_basis': False, 'prediction_revenue_rate': 0})
+        first.annual_fee_input = 200
+        self.assertAlmostEqual(old_expense.amount, 3000)
+        frozen_expense = second.operating_expense_ids.filtered(lambda row: not row.expense_item_id)
+        amount = frozen_expense.amount
+        second.action_freeze_baseline()
+        self.env['school.financial.report']._refresh_for_academic_years(second.ids)
+        self.assertAlmostEqual(frozen_expense.amount, amount)
+
     def test_expense_formulas(self):
         wizard = self._wizard()
         for trend, expected in (
@@ -533,6 +863,10 @@ class TestQuickPrediction(TransactionCase):
             row = year.operating_expense_ids.filtered(lambda row: row.expense_category_id.name == 'Manual Expenses')
             self.assertAlmostEqual(row.amount, year.fee_total * rate / 100)
             self.assertLess(row.amount, year.fee_gross_total * rate / 100)
+        year = wizard._existing_forecast_years()[0]
+        year.annual_fee_input *= 2
+        row = year.operating_expense_ids.filtered(lambda row: row.expense_category_id.name == 'Manual Expenses')
+        self.assertAlmostEqual(row.amount, year.fee_total * 0.30)
 
     def test_after_tax_payroll_trend(self):
         wizard = self._wizard(True)
@@ -1376,9 +1710,20 @@ class TestQuickPrediction(TransactionCase):
         wizard.action_load_demo_data()
         wizard.action_apply()
         forecast = wizard._existing_forecast_years()[0]
+        legacy_activity, legacy_transport = self.env['school.fee.types'].create([
+            {'school_id': self.school.id, 'name': 'Activity Fee', 'display_order': 20},
+            {'school_id': self.school.id, 'name': 'Transportation Fee', 'display_order': 30, 'is_optional': True},
+        ])
         actual = forecast._ensure_actual_year()
+        names = actual.fee_value_ids.mapped('fee_type_id.name')
+        self.assertIn(legacy_activity.name, names)
+        self.assertNotIn('Activity fees', names)
+        self.assertIn(legacy_transport.name, names)
+        self.assertNotIn('Transportation Fees', names)
         actual.enrollment_ids[0].student_count = 20
-        fee = actual.fee_value_ids.filtered(lambda row: row.grade_level_id == actual.enrollment_ids[0].grade_level_id)[:1]
+        fee = actual.fee_value_ids.filtered(
+            lambda row: row.grade_level_id == actual.enrollment_ids[0].grade_level_id and row.fee_type_id.forecast_tuition
+        )[:1]
         vat = self.env['school.tax.rules'].create({'school_id': self.school.id, 'name': 'Actual Fee VAT', 'percentage': 0.1})
         levy = self.env['school.tax.rules'].create({'school_id': self.school.id, 'name': 'Actual Fee Levy', 'percentage': 0.05})
         fee.write({'amount': 1000, 'actual_tax_rule_ids': [(6, 0, (vat | levy).ids)]})
@@ -1386,8 +1731,10 @@ class TestQuickPrediction(TransactionCase):
         self.assertAlmostEqual(fee.tax_amount, 3000)
         self.assertAlmostEqual(fee.revenue_amount, 17000)
         self.assertEqual(forecast.fee_gross_total, 12000000)
-        self.assertEqual(set(actual.fee_value_ids.mapped('fee_type_id.name')), {'Tuition Fee', 'Activity Fee', 'Admission Fee', 'Transportation Fee'})
-        transport = actual.fee_value_ids.filtered(lambda row: row.grade_level_id == actual.enrollment_ids[0].grade_level_id and row.fee_type_id.is_optional)
+        transport = actual.fee_value_ids.filtered(
+            lambda row: row.grade_level_id == actual.enrollment_ids[0].grade_level_id
+            and row.fee_type_id == legacy_transport
+        )
         transport.write({'amount': 500, 'actual_tax_rule_ids': [(6, 0, vat.ids)]})
         self.assertEqual(transport.actual_applicability, 'selected')
         self.assertEqual(transport.gross_revenue_amount, 0)
@@ -1529,7 +1876,7 @@ class TestQuickPrediction(TransactionCase):
         self.assertEqual(actual.teaching_status, 'in_progress')
         for fee_type in actual.fee_value_ids.mapped('fee_type_id'):
             actual.fee_value_ids.filtered(lambda row: row.fee_type_id == fee_type).with_context(defer_school_financial_refresh=True).write({
-                'amount': 1000 if fee_type.name == 'Tuition Fee' else 0})
+                'amount': 1000 if fee_type.forecast_tuition else 0})
         with Form(actual, view='school_planning.view_school_year_workspace') as form:
             form.total_students_input = 90
             self.assertEqual(sum(form.enrollment_ids.edit(index).student_count for index in range(len(form.enrollment_ids))), 90)

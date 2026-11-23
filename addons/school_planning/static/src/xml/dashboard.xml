@@ -42,8 +42,10 @@
                     <button class="btn btn-light sp-refresh" t-on-click="load" t-att-disabled="state.busy"><i class="fa fa-refresh me-2" aria-hidden="true"/>Refresh</button>
                 </section>
 
-                <div t-if="state.error" class="alert alert-danger mt-3" role="alert">
-                    <strong>Dashboard unavailable.</strong> <t t-esc="state.error"/>
+                <div t-if="state.error">
+                    <DismissibleNotice variant="'danger'">
+                        <strong>Dashboard unavailable.</strong> <t t-esc="state.error"/>
+                    </DismissibleNotice>
                     <button class="btn btn-link" t-on-click="load">Try again</button>
                 </div>
                 <div t-elif="state.busy" class="sp-dashboard-empty" role="status"><i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"/><p>Loading your latest figures…</p></div>
@@ -66,7 +68,9 @@
                         <button t-if="state.yearIds === null or state.yearIds.length" class="btn btn-primary" t-on-click="openSchools">Go to schools</button>
                     </div>
                     <section t-else="" id="sp-insights-panel" role="tabpanel" t-att-aria-labelledby="state.tab === 'overview' ? 'sp-overview-tab' : 'sp-report-tab'">
-                        <div t-if="provisional" class="alert alert-warning mt-3" role="status"><i class="fa fa-info-circle me-2" aria-hidden="true"/>Actuals are still in progress. These figures are provisional; unentered sections may show zero.</div>
+                        <DismissibleNotice t-if="provisional" variant="'warning'"><i class="fa fa-info-circle me-2" aria-hidden="true"/>Actuals are still in progress. These figures are provisional; unentered sections may show zero.</DismissibleNotice>
+                        <DismissibleNotice t-if="state.data.income_incomplete" variant="'warning'">Forecast totals are incomplete: selected Detailed Income items need pricing.</DismissibleNotice>
+                        <div t-if="state.dataset === 'forecast'" class="text-muted mt-2">Grade revenue includes tuition and per-student Detailed Income. Other Detailed Income is not allocated to grades. Older approved forecasts retain historical grade formulas.</div>
                         <div class="sp-period-context">
                             <span><strong t-esc="state.data.rows.length"/> <t t-if="state.data.rows.length === 1">academic year</t><t t-else="">academic years</t> · Financial totals cover the selected period. <t t-if="state.data.combined_branches">Students reflect the latest selected year per branch or school.</t><t t-else="">Students reflect the latest selected year.</t></span>
                             <div class="sp-dashboard-actions">
@@ -160,9 +164,10 @@
                                 <p class="sp-report-footnote">Net budget = revenue after tax − operating costs − startup investment. PDF includes the matching years with full report detail; column selection applies to this table and CSV.</p>
                             </article>
                             <article class="sp-dashboard-card mt-4">
-                                <div class="sp-card-heading"><div><h2>Enrollment &amp; unit economics</h2><p>Selected period · students are student-years when multiple years are selected. Grade costs follow the existing allocation model, including tax deductions.</p></div></div>
+                                <div class="sp-card-heading">                                <div><h2>Enrollment &amp; unit economics</h2><p>Selected period · students are student-years when multiple years are selected. Grade costs use assigned per-student expenses; older approved forecasts retain historical allocations.</p></div></div>
                                 <div class="sp-table-scroll" tabindex="0" role="region" aria-label="Grade economics table">
-                                    <table class="sp-report-table"><thead><tr><th>Grade group</th><th>Grade</th><th>Students / student-years</th><th>Net revenue</th><th>Revenue / student</th><th>Allocated cost / student</th></tr></thead><tbody><tr t-foreach="state.data.grades" t-as="grade" t-key="grade.id"><td t-esc="grade.group"/><td t-esc="grade.name"/><td t-esc="number(grade.students)"/><td t-esc="amount(grade.revenue)"/><td t-esc="amount(grade.students ? grade.revenue / grade.students : 0)"/><td t-esc="amount(grade.students ? grade.cost / grade.students : 0)"/></tr><tr t-if="!state.data.grades.length"><td colspan="6" class="text-center p-4">No grade enrollment has been entered.</td></tr></tbody></table>
+                                    <div class="text-muted mb-2">Grade costs include only assigned per-student detailed expenses; shared school costs are excluded.</div>
+                                    <table class="sp-report-table"><thead><tr><th>Grade group</th><th>Grade</th><th>Students / student-years</th><th>Fee revenue</th><th>Revenue / student</th><th>Grade expense cost</th><th>Per-student expense cost</th></tr></thead><tbody><tr t-foreach="state.data.grades" t-as="grade" t-key="grade.id"><td t-esc="grade.group"/><td t-esc="grade.name"/><td t-esc="number(grade.students)"/><td t-esc="amount(grade.revenue)"/><td t-esc="amount(grade.students ? grade.revenue / grade.students : 0)"/><td t-esc="amount(grade.cost)"/><td t-esc="amount(grade.cost_per_student)"/></tr><tr t-if="!state.data.grades.length"><td colspan="7" class="text-center p-4">No grade enrollment has been entered.</td></tr></tbody></table>
                                 </div>
                             </article>
                         </t>

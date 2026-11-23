@@ -7,6 +7,7 @@
 
 .sp-back-link { display: inline-block; color: #256f73; margin-bottom: 20px; }
 .sp-page-help { color: #63777e; margin: 12px 0 20px; }
+.sp-page-help .btn-close { float: right; }
 .sp-page .btn { border-radius: 8px; }
 .sp-page .btn-primary { background: #256f73; border-color: #256f73; }
 .sp-page .btn-secondary { background: white; color: #203d46; border-color: #dfe8e9; }

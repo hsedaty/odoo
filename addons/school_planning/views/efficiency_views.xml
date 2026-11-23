@@ -54,7 +54,7 @@
             <form string="Detailed Item">
                 <sheet>
                     <group>
-                        <group><field name="name"/><field name="active"/><field name="configuration_id" invisible="1"/><field name="category_seed_id" required="1" domain="[('configuration_id', '=', configuration_id), ('is_detailed_category', '=', True), ('cost_bucket', '=', 'operating'), ('catalog_type', '=', context.get('catalog_type', 'expense'))]" options="{'no_create': True}"/><field name="curriculum"/><field name="student_paid" invisible="context.get('catalog_type') == 'income'"/></group>
+                        <group><field name="name"/><field name="active"/><field name="configuration_id" invisible="1"/><field name="category_seed_id" required="1" domain="[('configuration_id', '=', configuration_id), ('is_detailed_category', '=', True), ('cost_bucket', '=', 'operating'), ('catalog_type', '=', context.get('catalog_type', 'expense'))]" options="{'no_create': True}"/><field name="curriculum"/><field name="student_paid" invisible="context.get('catalog_type') == 'income'"/><field name="replaces_tuition" invisible="context.get('catalog_type') != 'income'"/></group>
                         <group><field name="price_type" widget="radio" options="{'horizontal': True}"/><field name="basis"/><field name="price"/><field name="currency_id" context="{'list_view_ref': 'school_planning.view_price_currency_picker_list'}"/><field name="price_set"/><field name="quantity" invisible="basis not in ['teacher', 'quantity']"/><field name="quantity_set" invisible="basis not in ['teacher', 'quantity']"/></group>
                     </group>
                     <group string="Applicability">
@@ -85,7 +85,6 @@
                         <group/>
                     </group>
                     <notebook>
-                        <page string="Fee Seeds"><field name="fee_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/><field name="is_optional"/></list></field></page>
                         <page string="Tax Seeds"><field name="tax_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="display_order" widget="handle"/><field name="name"/><field name="percentage" widget="percentage"/></list></field></page>
                         <page string="Asset Seeds">
                             <field name="asset_ids" nolabel="1" context="{'default_configuration_id': id}"><list editable="bottom"><field name="name"/><field name="unit_price" string="Unit Price (School Currency)"/><field name="quantity"/><field name="basis"/></list></field>

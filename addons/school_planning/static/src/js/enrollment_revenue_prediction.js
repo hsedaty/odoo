@@ -21,6 +21,10 @@
         return;
     }
 
+    document.getElementById('sp-dismiss-help').addEventListener('click', (event) => {
+        event.currentTarget.parentElement.hidden = true;
+    });
+
     function setStatus(message, type) {
         if (!statusEl) {
             return;

@@ -11,7 +11,7 @@
                         <button type="button" id="sp-add-year" class="btn btn-secondary">Add Academic Year</button>
                         <button type="button" id="sp-save" class="btn btn-primary">Save Changes</button>
                     </div>
-                    <p class="sp-page-help">Edit the white cells to update enrollment and fees. Calculated totals update automatically; save your changes before leaving.</p>
+                    <p class="sp-page-help">Edit the white cells to update enrollment and fees. Calculated totals update automatically; save your changes before leaving. <button type="button" class="btn-close" id="sp-dismiss-help" aria-label="Close notice"/></p>
                 </div>
 
                 <div class="sp-status" id="sp-status" role="status" aria-live="polite"></div>

@@ -7,6 +7,7 @@ import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
 import { useSetupAction } from "@web/search/action_hook";
 import { standardActionServiceProps } from "@web/webclient/actions/action_service";
+import { DismissibleNotice } from "./dismissible_notice";
 
 const COLORS = ["#256f73", "#e5a84b", "#5865a8", "#cf655c"];
 const COLUMNS = [
@@ -23,6 +24,7 @@ const COLUMNS = [
 export class SchoolDashboard extends Component {
     static template = "school_planning.Dashboard";
     static props = { ...standardActionServiceProps };
+    static components = { DismissibleNotice };
 
     setup() {
         this.orm = useService("orm");

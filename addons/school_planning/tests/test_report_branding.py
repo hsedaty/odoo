@@ -199,8 +199,8 @@ class TestReportBranding(TransactionCase):
                 self.assertEqual([node.xpath('.//span[@style]/@style')[0] for node in kpis],
                                  [f'color: {color};' for color in (green, red, budget_color)])
                 grade_cells = document.xpath('//tr[td[2]/span[normalize-space(.)="Grade 1"]]/td')
-                self.assertIn(cost_text, grade_cells[5].text_content().replace('\ufeff', ''))
-                self.assertEqual(grade_cells[5].xpath('.//span[@style]/@style'), [f'color: {red};'])
+                self.assertIn('0.00', grade_cells[5].text_content().replace('\ufeff', ''))
+                self.assertEqual(grade_cells[5].xpath('.//span[@style]/@style'), [f'color: {neutral};'])
 
                 colored_text = []
                 fill = (0, 0, 0)
@@ -228,7 +228,7 @@ class TestReportBranding(TransactionCase):
                 for amount, color in [
                     ('USD 12,000.00', green), (f'USD {cost_text}', red),
                     (f'USD {budget}', budget_color), ('USD 0.00', neutral),
-                    (cost_text, red), (f'-{cost / 10:,.2f}', red),
+                    ('0.00', neutral),
                 ]:
                     matching = [rgb for text, rgb in colored_text if text == amount]
                     self.assertTrue(matching, amount)

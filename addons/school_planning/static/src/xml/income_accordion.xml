@@ -15,6 +15,22 @@
                     <t t-foreach="grade.records" t-as="record" t-key="record.id">
                         <t t-call="{{ constructor.recordRowTemplate }}"/>
                     </t>
+                    <tr t-foreach="grade.incomes" t-as="income" t-key="income.item.id" class="o_data_row">
+                        <td t-if="hasSelectors"/>
+                        <td t-foreach="columns" t-as="column" t-key="column.id" t-att-data-name="column.name">
+                            <t t-if="column.name === 'grade_level_id'" t-esc="grade.name"/>
+                            <t t-elif="column.name === 'fee_type_id'" t-esc="income.item.name"/>
+                            <input t-elif="column.name === 'included_in_forecast'" type="checkbox" class="form-check-input" checked="checked" disabled="disabled" aria-label="Included in forecast"/>
+                            <input t-elif="column.name === 'amount'" type="number" min="0" step="any"
+                                   class="o_input text-end" t-att-aria-label="income.item.name + ' per student for ' + grade.name"
+                                   t-att-value="income.grade.rate == null ? '' : income.grade.rate"
+                                   t-att-disabled="props.readonly or this.income.busy"
+                                   t-on-click.stop="" t-on-change="(ev) => this.setIncomeGrade(income.item, income.grade, ev)"/>
+                            <t t-elif="column.name === 'gross_revenue_amount' and income.grade.rate != null" t-esc="this.incomeAmount(income.grade)"/>
+                        </td>
+                        <td t-if="hasOpenFormViewColumn"/>
+                        <td t-if="hasActionsColumn"/>
+                    </tr>
                 </t>
             </t>
         </xpath>
